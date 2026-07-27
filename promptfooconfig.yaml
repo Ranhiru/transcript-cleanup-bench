@@ -9,17 +9,26 @@ prompts:
 
 providers:
   - id: openai:chat:gemma-4-e4b-it-4bit
+    label: "Gemma 4 E4B"
     config:
       apiBaseUrl: http://localhost:8000/v1
       apiKeyEnvar: OMLX_API_KEY
       temperature: 0
       max_tokens: 8192
   - id: openai:chat:gemma-4-E2B-it-MLX-4bit
+    label: "Gemma 4 E2B"
     config:
       apiBaseUrl: http://localhost:8000/v1
       apiKeyEnvar: OMLX_API_KEY
       temperature: 0
       max_tokens: 8192
+
+commandLineOptions:
+  maxConcurrency: 8
+
+defaultTest:
+  options:
+    transform: 'output.trim()'
 
 tests:
   - file://tests/*.yaml

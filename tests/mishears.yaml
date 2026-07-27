@@ -1,0 +1,48 @@
+- description: mishear-1 — vicious → viscous (oil context)
+  vars:
+    transcript: The oil looks vicious, we might need to change it.
+  assert:
+    - type: regex
+      value: '^The oil looks viscous[,;] we might need to change it\.$'
+
+- description: mishear-2 — wheel train → valve train
+  vars:
+    transcript: There's a strange noise coming from the wheel train when the engine is cold.
+  assert:
+    - type: equals
+      value: There's a strange noise coming from the valve train when the engine is cold.
+
+- description: mishear-3 — voice attack → voice-to-text
+  vars:
+    transcript: I used voice attack to write this email instead of typing it.
+  assert:
+    - type: equals
+      value: I used voice-to-text to write this email instead of typing it.
+
+- description: mishear-4 — tree → three (number context)
+  vars:
+    transcript: I counted tree apples on the table.
+  assert:
+    - type: equals
+      value: I counted three apples on the table.
+
+- description: mishear-5 — true check → thorough check
+  vars:
+    transcript: Can you do a true check on the wiring before we close it up?
+  assert:
+    - type: equals
+      value: Can you do a thorough check on the wiring before we close it up?
+
+- description: mishear-6 — NEGATIVE CONTROL — vicious is correct here, must not become viscous
+  vars:
+    transcript: The dog was vicious and bit the mailman.
+  assert:
+    - type: equals
+      value: The dog was vicious and bit the mailman.
+
+- description: mishear-7 — NEGATIVE CONTROL — a real tree, must not become three
+  vars:
+    transcript: There is a large tree in the backyard that needs trimming.
+  assert:
+    - type: equals
+      value: There is a large tree in the backyard that needs trimming.

@@ -1,0 +1,20 @@
+- description: spelling-1 — two misspellings fixed, nothing else touched
+  vars:
+    transcript: I will recieve the package tomorow morning.
+  assert:
+    - type: equals
+      value: I will receive the package tomorrow morning.
+
+- description: spelling-2 — definately/seperate
+  vars:
+    transcript: We definately need to keep these files seperate from the others.
+  assert:
+    - type: equals
+      value: We definitely need to keep these files separate from the others.
+
+- description: spelling-3 — NEGATIVE CONTROL — already correct, must not be reworded
+  vars:
+    transcript: The report is due Friday and everyone should review it carefully before submission.
+  assert:
+    - type: regex
+      value: '^The report is due Friday,? and everyone should review it carefully before submission\.$'
