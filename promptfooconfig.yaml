@@ -22,3 +22,21 @@ tests:
     assert:
       - type: equals
         value: The quarterly report is due next Friday.
+
+  - description: mishear — vicious must become viscous
+    vars:
+      transcript: The oil looks vicious, we might need to change it.
+    assert:
+      - type: contains
+        value: viscous
+      - type: not-contains
+        value: vicious
+
+  - description: filler words must be removed
+    vars:
+      transcript: Um, I think we should, uh, go to the store.
+    assert:
+      - type: not-contains
+        value: "Um,"
+      - type: not-contains
+        value: "uh,"
