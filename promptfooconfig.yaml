@@ -5,7 +5,10 @@
 description: "Prompt eval for transcription processing"
 
 prompts:
-  - file://prompt.txt
+  - id: file://prompt-v1.txt
+    label: v1
+  - id: file://prompt-v2.txt
+    label: v2
 
 providers:
   - id: openai:chat:gemma-4-e4b-it-4bit

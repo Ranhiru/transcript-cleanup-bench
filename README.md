@@ -22,4 +22,10 @@ npx promptfoo@latest view    # open the results grid in a browser
 ## Files
 
 - `promptfooconfig.yaml` — the whole eval: prompts, providers, and tests
-- `prompt.txt` — the prompt under test, with `{{transcript}}` as the input placeholder
+- `prompt-v1.txt` — baseline prompt, with `{{transcript}}` as the input placeholder
+- `prompt-v2.txt` — revised prompt, compared against v1 in every run
+- `tests/*.yaml` — one file per case category, picked up by a glob
+
+Both prompts come from the `transcription-prompt-eval` repo, where they are `prompt.txt`
+(sha `3f57dab2`) and `prompt-v9.txt` (sha `e4fca361`). The v1/v2 numbering is local to
+this repo.
