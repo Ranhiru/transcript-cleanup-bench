@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+# Learn more about building a configuration: https://promptfoo.dev/docs/configuration/guide
+
+description: "Prompt eval for transcription processing"
+
+prompts:
+  - file://prompt.txt
+
+providers:
+  - id: openai:chat:gemma-4-e4b-it-4bit
+    config:
+      apiBaseUrl: http://localhost:8000/v1
+      apiKeyEnvar: OMLX_API_KEY
+      temperature: 0.1
+      max_tokens: 8192
+
+tests:
+  - description: passthrough — clean text must survive untouched
+    vars:
+      transcript: The quarterly report is due next Friday.
+    assert:
+      - type: equals
+        value: The quarterly report is due next Friday.
