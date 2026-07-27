@@ -12,31 +12,14 @@ providers:
     config:
       apiBaseUrl: http://localhost:8000/v1
       apiKeyEnvar: OMLX_API_KEY
-      temperature: 0.1
+      temperature: 0
+      max_tokens: 8192
+  - id: openai:chat:gemma-4-E2B-it-MLX-4bit
+    config:
+      apiBaseUrl: http://localhost:8000/v1
+      apiKeyEnvar: OMLX_API_KEY
+      temperature: 0
       max_tokens: 8192
 
 tests:
-  - description: passthrough — clean text must survive untouched
-    vars:
-      transcript: The quarterly report is due next Friday.
-    assert:
-      - type: equals
-        value: The quarterly report is due next Friday.
-
-  - description: mishear — vicious must become viscous
-    vars:
-      transcript: The oil looks vicious, we might need to change it.
-    assert:
-      - type: contains
-        value: viscous
-      - type: not-contains
-        value: vicious
-
-  - description: filler words must be removed
-    vars:
-      transcript: Um, I think we should, uh, go to the store.
-    assert:
-      - type: not-contains
-        value: "Um,"
-      - type: not-contains
-        value: "uh,"
+  - file://tests/*.yaml
