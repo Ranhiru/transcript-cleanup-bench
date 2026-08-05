@@ -7,15 +7,26 @@ PROMPTFOO := npx --yes promptfoo@$(PROMPTFOO_VERSION)
 ARGS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help eval view version install clean
+.PHONY: help eval bench report view version install clean
 
 help: ## Show the available targets
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "  promptfoo version: $(PROMPTFOO_VERSION)"
 
-eval: ## Run every test against the prompts
+eval: ## Run every test against the prompts (fast, concurrent — not for publishing)
 	$(PROMPTFOO) eval $(ARGS)
+
+# The published benchmark. Serialised and uncached so the numbers mean something:
+# all four models share one inference server, so concurrent requests queue behind
+# each other and latency measures scheduling rather than the model. Takes ~12min.
+bench: ## Run the publishable benchmark, then regenerate the README
+	mkdir -p results
+	$(PROMPTFOO) eval --no-cache -j 1 -o results/latest.csv $(ARGS)
+	@$(MAKE) --no-print-directory report
+
+report: ## Regenerate the README summary from the last run (no re-run)
+	python3 scripts/report.py $(ARGS)
 
 view: ## Open the results grid in a browser
 	$(PROMPTFOO) view

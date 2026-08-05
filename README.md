@@ -4,6 +4,33 @@ Evaluates the transcript-cleaner prompt with [promptfoo](https://promptfoo.dev).
 
 The prompt takes a raw dictation transcript and returns a cleaned version — fixing mishears, removing filler words, formatting numbers without adding commentary or answering anything the transcript happens to ask.
 
+## Results
+
+<!-- BENCHMARK:START -->
+
+_Not generated yet — run `make bench`._
+
+<!-- BENCHMARK:END -->
+
+Regenerate with `make bench` (runs the suite, ~12 min) or `make report` (rebuilds the
+tables from the last run without re-running anything). Everything between the markers
+above is generated — edit `scripts/report.py`, not the tables.
+
+### Hardware and server
+
+<!-- Fill these in before publishing. -->
+
+| | |
+|:---|:---|
+| machine | — |
+| memory | — |
+| OMLX version | — |
+
+Sampler settings are pinned per provider in `promptfooconfig.yaml` rather than taken
+from the OMLX defaults, so the settings that produced these numbers are visible in the
+repo. Any value not sent by promptfoo falls back to whatever the server defaults to,
+which is invisible in the results — so they are all set explicitly.
+
 ## Setup
 
 Needs Node.js 20+ (for `npx`) and GNU Make. Everything else comes from the pinned
