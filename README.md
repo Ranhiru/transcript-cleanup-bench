@@ -8,13 +8,55 @@ The prompt takes a raw dictation transcript and returns a cleaned version — fi
 
 <!-- BENCHMARK:START -->
 
-_Not generated yet — run `make bench`._
+### Leaderboard
+
+Ranked by tests passed. Best result first.
+
+| # | model | prompt | passed | score |
+|---:|:---|:---|---:|:---|
+| 1 | Qwen 3.6 35B-A3B | v2 | 39/39 | `█████████` 100.0% |
+| 2 | Gemma 4 12B QAT | v2 | 38/39 | `█████████` 97.4% |
+| 3 | Gemma 4 E2B | v2 | 36/39 | `████████░` 92.3% |
+| 4 | Gemma 4 E4B | v2 | 35/39 | `████████░` 89.7% |
+| 5 | Gemma 4 12B QAT | v1 | 34/39 | `████████░` 87.2% |
+| 6 | Gemma 4 E4B | v1 | 34/39 | `████████░` 87.2% |
+| 7 | Qwen 3.6 35B-A3B | v1 | 34/39 | `████████░` 87.2% |
+| 8 | Gemma 4 E2B | v1 | 31/39 | `███████░░` 79.5% |
+
+Run serialised (`maxConcurrency: 1`) and uncached, with every sampler value pinned in `promptfooconfig.yaml`. Greedy decoding, so re-running should reproduce these numbers. Latency is not reported here — see the note below.
+
+### By category
+
+| model | prompt | happy-path | spelling | mishears-listed | mishears-unlisted | numbers-symbols | preservation | no-commentary |
+|:---|:---|---:|---:|---:|---:|---:|---:|---:|
+| Qwen 3.6 35B-A3B | v2 | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |
+| Gemma 4 12B QAT | v2 | 100.0% | 100.0% | 100.0% | 91.7% | 100.0% | 88.9% | 100.0% |
+| Gemma 4 E2B | v2 | 100.0% | 100.0% | 100.0% | 75.0% | 100.0% | 100.0% | 100.0% |
+| Gemma 4 E4B | v2 | 100.0% | 100.0% | 100.0% | 91.7% | 79.2% | 100.0% | 100.0% |
+| Gemma 4 12B QAT | v1 | 100.0% | 100.0% | 57.1% | 83.3% | 100.0% | 66.7% | 100.0% |
+| Gemma 4 E4B | v1 | 100.0% | 100.0% | 100.0% | 83.3% | 79.2% | 100.0% | 100.0% |
+| Qwen 3.6 35B-A3B | v1 | 100.0% | 100.0% | 71.4% | 83.3% | 95.8% | 77.8% | 100.0% |
+| Gemma 4 E2B | v1 | 100.0% | 100.0% | 85.7% | 58.3% | 87.5% | 77.8% | 100.0% |
+
+Full per-test results: [`results/latest.csv`](results/latest.csv) (312 rows). Aggregates: [`results/summary.json`](results/summary.json). Eval id `eval-grE-2026-08-05T02:35:39`.
 
 <!-- BENCHMARK:END -->
 
-Regenerate with `make bench` (runs the suite, ~12 min) or `make report` (rebuilds the
+Regenerate with `make bench` (runs the suite, ~14 min) or `make report` (rebuilds the
 tables from the last run without re-running anything). Everything between the markers
 above is generated — edit `scripts/report.py`, not the tables.
+
+### Why there is no latency column
+
+promptfoo's recorded latency is not usable here. It logged **10 ms** for a request that
+takes **~360 ms** by wall clock — a figure OMLX confirms in its own `total_time` field.
+The same 12-token completion was recorded anywhere between 6 ms and 7,961 ms depending
+only on whether OMLX's KV cache held the prompt prefix, so ranking on it would rank
+cache luck rather than models. promptfoo discards the server's `total_time`, so the
+stored results cannot be corrected after the fact.
+
+Measuring this properly needs a harness that times the requests itself, warms each
+model first, and reports tokens/second rather than raw wall clock. Not built yet.
 
 ### Hardware and server
 
@@ -50,7 +92,7 @@ npm install -g promptfoo@0.122.0
 brew install promptfoo    # tracks latest — check `promptfoo --version` matches
 ```
 
-Also needs a local/remote OpenAI compatible server serving `gemma-4-e4b-it-4bit`.
+Also needs a local/remote OpenAI compatible server serving the exact model IDs listed in `promptfooconfig.yaml`.
 Currently using OMLX
 
 ```fish

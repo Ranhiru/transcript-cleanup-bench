@@ -53,14 +53,7 @@ class Result:
     model: str
     prompt: str
     success: bool
-    latency_ms: int | None
     metrics: dict[str, float]
-    nth: int
-    """0-based position of this row among its model's requests, in run order.
-
-    Used to drop warm-up requests. Timestamps can't do this: eval_results
-    .created_at is a second-resolution string, so many rows share one value.
-    """
 
 
 @dataclass
@@ -72,8 +65,6 @@ class Entry:
     passed: int
     total: int
     pass_pct: float
-    mean_ms: int | None
-    median_ms: int | None
     metrics: dict[str, float] = field(default_factory=dict)
 
 
@@ -123,7 +114,7 @@ def fetch(requested_id: str | None) -> tuple[str, list[Result]]:
 
     raw = con.execute(
         """
-        select prompt, provider, success, latency_ms, named_scores
+        select prompt, provider, success, named_scores
         from eval_results where eval_id = ? order by created_at, rowid
         """,
         (eval_id,),
@@ -133,31 +124,27 @@ def fetch(requested_id: str | None) -> tuple[str, list[Result]]:
     if not raw:
         raise SystemExit(f"eval {eval_id} has no results")
 
-    counts: dict[str, int] = defaultdict(int)
     results: list[Result] = []
     for row in raw:
-        model = json_label(str(row["provider"]))
-        latency = row["latency_ms"]
         results.append(
             Result(
-                model=model,
+                model=json_label(str(row["provider"])),
                 prompt=short_label(json_label(str(row["prompt"]))),
                 success=bool(row["success"]),
-                latency_ms=int(latency) if latency is not None else None,
                 metrics=json_scores(str(row["named_scores"])),
-                nth=counts[model],
             )
         )
-        counts[model] += 1
     return eval_id, results
 
 
 def aggregate(results: list[Result]) -> tuple[list[Entry], list[str]]:
-    """One Entry per (model, prompt). Latency excludes each model's first request.
+    """One Entry per (model, prompt) — a leaderboard row.
 
-    That first request pays for loading the model into memory — 12.6s against the
-    tens of milliseconds every later request takes. Including it would rank models
-    by which happened to be scheduled first.
+    Latency is deliberately absent. promptfoo's recorded latency_ms is far too
+    low to be real: it logged 10ms for a request that takes ~360ms by wall clock,
+    which OMLX itself confirms in its `total_time` field. The stored response
+    drops that field, so there is nothing here to correct it with. Measuring
+    latency needs a harness that times the requests itself.
     """
     groups: dict[tuple[str, str], list[Result]] = defaultdict(list)
     for r in results:
@@ -171,7 +158,6 @@ def aggregate(results: list[Result]) -> tuple[list[Entry], list[str]]:
     entries: list[Entry] = []
     for (model, prompt), rows in groups.items():
         passed = sum(1 for r in rows if r.success)
-        warm = [r.latency_ms for r in rows if r.latency_ms is not None and r.nth > 0]
         scores: dict[str, list[float]] = defaultdict(list)
         for r in rows:
             for key, value in r.metrics.items():
@@ -184,8 +170,6 @@ def aggregate(results: list[Result]) -> tuple[list[Entry], list[str]]:
                 passed=passed,
                 total=len(rows),
                 pass_pct=round(100 * passed / len(rows), 1),
-                mean_ms=round(statistics.fmean(warm)) if warm else None,
-                median_ms=round(statistics.median(warm)) if warm else None,
                 metrics={
                     key: round(100 * statistics.fmean(vals), 1)
                     for key, vals in sorted(scores.items())
@@ -193,8 +177,9 @@ def aggregate(results: list[Result]) -> tuple[list[Entry], list[str]]:
             )
         )
 
-    # Winner = most tests passed; ties broken by lower mean latency.
-    entries.sort(key=lambda e: (-e.passed, e.mean_ms if e.mean_ms is not None else 1 << 30))
+    # Winner = most tests passed. Model and prompt break ties so the ordering is
+    # stable between runs and the README diff stays readable.
+    entries.sort(key=lambda e: (-e.passed, e.model, e.prompt))
     return entries, metrics
 
 
@@ -205,23 +190,19 @@ def md_table(rows: list[list[str]], align: list[str]) -> list[str]:
     return out
 
 
-def ms(value: int | None) -> str:
-    return f"{value} ms" if value is not None else "—"
-
-
-LATENCY_NOTE = (
-    "Latency is per request and excludes each model's first request, which pays for"
-    " loading the model into memory. Measured at `maxConcurrency: 1`, so requests"
-    " never queue behind one another."
+RUN_NOTE = (
+    "Run serialised (`maxConcurrency: 1`) and uncached, with every sampler value"
+    " pinned in `promptfooconfig.yaml`. Greedy decoding, so re-running should"
+    " reproduce these numbers. Latency is not reported here — see the note below."
 )
 
 
 def render(eval_id: str, entries: list[Entry], metrics: list[str], total: int) -> str:
     lines: list[str] = ["### Leaderboard", ""]
-    lines.append("Ranked by tests passed, then by latency. Best result first.")
+    lines.append("Ranked by tests passed. Best result first.")
     lines.append("")
 
-    board = [["#", "model", "prompt", "passed", "score", "mean", "median"]]
+    board = [["#", "model", "prompt", "passed", "score"]]
     for i, e in enumerate(entries, 1):
         board.append(
             [
@@ -230,12 +211,10 @@ def render(eval_id: str, entries: list[Entry], metrics: list[str], total: int) -
                 e.prompt,
                 f"{e.passed}/{e.total}",
                 f"`{bar(e.pass_pct)}` {e.pass_pct}%",
-                ms(e.mean_ms),
-                ms(e.median_ms),
             ]
         )
-    lines += md_table(board, ["r", "l", "l", "r", "l", "r", "r"])
-    lines += ["", LATENCY_NOTE, "", "### By category", ""]
+    lines += md_table(board, ["r", "l", "l", "r", "l"])
+    lines += ["", RUN_NOTE, "", "### By category", ""]
 
     by_metric = [["model", "prompt"] + metrics]
     for e in entries:
