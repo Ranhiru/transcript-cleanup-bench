@@ -6,7 +6,25 @@ The prompt takes a raw dictation transcript and returns a cleaned version — fi
 
 ## Setup
 
-Needs a local/remote OpenAI compatible server serving `gemma-4-e4b-it-4bit`. Currently using OMLX
+Needs Node.js 20+ (for `npx`) and GNU Make. Everything else comes from the pinned
+promptfoo version in the `Makefile` — there is nothing to `npm install` in this repo.
+
+```fish
+make install    # pre-download the pinned promptfoo into the npx cache
+make version    # confirm which version is actually being run
+```
+
+If you would rather have the binary on your `PATH`, install the *same* version the
+`Makefile` pins so results stay comparable:
+
+```fish
+npm install -g promptfoo@0.122.0
+# or
+brew install promptfoo    # tracks latest — check `promptfoo --version` matches
+```
+
+Also needs a local/remote OpenAI compatible server serving `gemma-4-e4b-it-4bit`.
+Currently using OMLX
 
 ```fish
 set -gx OMLX_API_KEY 123456
@@ -15,12 +33,24 @@ set -gx OMLX_API_KEY 123456
 ## Run
 
 ```fish
-npx promptfoo@latest eval    # run every test against the prompt
-npx promptfoo@latest view    # open the results grid in a browser
+make eval    # run every test against the prompts
+make view    # open the results grid in a browser
+make         # list the available targets
 ```
+
+Extra flags go through `ARGS`:
+
+```fish
+make eval ARGS="--filter-pattern mishears"
+```
+
+The version is pinned in the `Makefile` (`PROMPTFOO_VERSION`) rather than using
+`promptfoo@latest`, so a new promptfoo release can't silently change eval results.
+Bump it deliberately and re-run the full suite.
 
 ## Files
 
+- `Makefile` — entry point; pins the promptfoo version
 - `promptfooconfig.yaml` — the whole eval: prompts, providers, and tests
 - `prompt-v1.txt` — baseline prompt, with `{{transcript}}` as the input placeholder
 - `prompt-v2.txt` — revised prompt, compared against v1 in every run
