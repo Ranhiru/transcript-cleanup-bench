@@ -4,7 +4,8 @@
 #   and everything downstream works on the dataclasses below.
 """Generate the benchmark summary in README.md from promptfoo's result database.
 
-Reads the most recent eval (or --eval-id) out of ~/.promptfoo/promptfoo.db and
+Reads the most recent eval (or --eval-id) out of the repo-local promptfoo
+database (.promptfoo/promptfoo.db, overridable with PROMPTFOO_CONFIG_DIR) and
 rewrites the block between the BENCHMARK markers in README.md. Also writes
 results/summary.json so the published numbers can be audited without the
 6.2MB promptfoo export or a local database.
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import statistics
 from collections import defaultdict
@@ -24,7 +26,11 @@ from pathlib import Path
 from typing import cast
 
 REPO = Path(__file__).resolve().parent.parent
-DB = Path.home() / ".promptfoo" / "promptfoo.db"
+# Mirrors promptfoo's own resolution (getConfigDirectoryPath): the env var wins,
+# otherwise fall back to the repo-local dir the Makefile points at — never the
+# shared ~/.promptfoo, whose evals belong to no particular project.
+CONFIG_DIR = Path(os.environ.get("PROMPTFOO_CONFIG_DIR") or REPO / ".promptfoo")
+DB = CONFIG_DIR / "promptfoo.db"
 README = REPO / "README.md"
 SUMMARY = REPO / "results" / "summary.json"
 

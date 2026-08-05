@@ -3,6 +3,13 @@
 PROMPTFOO_VERSION := 0.122.0
 PROMPTFOO := npx --yes promptfoo@$(PROMPTFOO_VERSION)
 
+# Scope promptfoo's state — result database, response cache, logs — to this repo
+# instead of the shared ~/.promptfoo. Without this, `make report` reads a database
+# holding every promptfoo run on the machine, so an eval from an unrelated project
+# could land in this README. promptfoo creates the directory on demand.
+# Exported, not just set, so scripts/report.py resolves the same database.
+export PROMPTFOO_CONFIG_DIR := $(CURDIR)/.promptfoo
+
 # Extra flags for eval, e.g. make eval ARGS="--filter-pattern mishears"
 ARGS ?=
 
