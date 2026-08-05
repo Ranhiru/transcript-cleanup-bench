@@ -1,6 +1,6 @@
-# Local Prompt Clean Up Evaluation
+# Transcript Cleanup Bench
 
-Evaluates how effective local LLM models are at prompt clean up [promptfoo](https://promptfoo.dev). The goal is consistently compare these models across standardized tasks while improving the prompt
+Benchmarks how effective local LLM models are at transcript clean up, using [promptfoo](https://promptfoo.dev). The goal is consistently compare these models across standardized tasks while improving the prompt
 
 Currently used with [Handy](https://handy.computer/)
 

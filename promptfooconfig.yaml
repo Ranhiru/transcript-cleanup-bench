@@ -2,7 +2,7 @@
 
 # Learn more about building a configuration: https://promptfoo.dev/docs/configuration/guide
 
-description: "Prompt eval for transcription processing"
+description: "Local model benchmark for transcript cleanup"
 
 # Listed explicitly rather than globbed like tests/ below: the labels are the
 # comparison axis in every result, and glob order is filesystem order, which
