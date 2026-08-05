@@ -6,10 +6,12 @@ description: "Prompt eval for transcription processing"
 
 # Listed explicitly rather than globbed like tests/ below: the labels are the
 # comparison axis in every result, and glob order is filesystem order, which
-# put v2 first. Adding a prompt means adding a line here.
+# put v2 first. A glob silently discards any label you attach.
 prompts:
-  file://prompts/v1.txt: v1
-  file://prompts/v2.txt: v2
+  - id: file://prompts/v1.txt
+    label: v1
+  - id: file://prompts/v2.txt
+    label: v2
 
 providers:
   - id: openai:chat:gemma-4-e4b-it-4bit
