@@ -21,6 +21,15 @@ from the OMLX defaults, so the settings that produced these numbers are visible 
 repo. Any value not sent by promptfoo falls back to whatever the server defaults to,
 which is invisible in the results — so they are all set explicitly.
 
+## Models used and defaults
+
+Currently testing the Gemma family and Qwen3.6 MoE model that works reasonably fast. Latency is not measured yet because 
+promptfoo's recorded latency_ms is far too low to be real. Also OMLX has a cache that can skew results during repeated runs with the same prompt.
+
+All the models used here have thinking turned off from the server. Apart from hardcoded values in the promptfoo config, all settings are taken from general OMLX presets for each model family
+
+Qwen3.6 MoE model use the `qwen3.5/6(r, general)` preset, while Gemma models use the `gemma4` preset.
+
 ## Results
 
 <!-- BENCHMARK:START -->
