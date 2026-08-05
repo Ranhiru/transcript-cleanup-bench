@@ -25,6 +25,30 @@ providers:
       apiKeyEnvar: OMLX_API_KEY
       temperature: 0
       max_tokens: 8192
+  - id: openai:chat:gemma-4-12B-it-qat-4bit
+    label: "Gemma 4 12B QAT"
+    config:
+      apiBaseUrl: http://localhost:8000/v1
+      apiKeyEnvar: OMLX_API_KEY
+      temperature: 0
+      max_tokens: 8192
+  - id: http://localhost:8000/v1/chat/completions
+    label: "Qwen 3.6 35B-A3B"
+    config:
+      method: POST
+      headers:
+        Authorization: 'Bearer 123456'
+        Content-Type: application/json
+      body:
+        model: Qwen3.6-35B-A3B-MLX-4bit
+        temperature: 0
+        max_tokens: 8192
+        chat_template_kwargs:
+          enable_thinking: false
+        messages:
+          - role: user
+            content: '{{prompt}}'
+      transformResponse: 'json.choices[0].message.content'
 
 commandLineOptions:
   maxConcurrency: 8

@@ -1,0 +1,101 @@
+- description: gen-mishear-1 — sell phone → cell phone
+  vars:
+    transcript: I left my sell phone at the office again.
+  assert:
+    - type: equals
+      value: I left my cell phone at the office again.
+      metric: mishears-unlisted
+
+- description: gen-mishear-2 — next store → next door (hyphen optional)
+  vars:
+    transcript: Our next store neighbor offered to water the plants while we're away.
+  assert:
+    - type: regex
+      value: "^Our next[- ]door neighbor offered to water the plants while we're away\\.$"
+      metric: mishears-unlisted
+
+- description: gen-mishear-3 — pacific → specific
+  vars:
+    transcript: Can you be more pacific about the requirements before we start building?
+  assert:
+    - type: equals
+      value: Can you be more specific about the requirements before we start building?
+      metric: mishears-unlisted
+
+- description: gen-mishear-4 — flee market → flea market
+  vars:
+    transcript: We found this old lamp at the flee market downtown last weekend.
+  assert:
+    - type: equals
+      value: We found this old lamp at the flea market downtown last weekend.
+      metric: mishears-unlisted
+
+- description: gen-mishear-5 — brake → break (comma splice may be repaired)
+  vars:
+    transcript: We have been working for hours, let's take a quick brake before the next meeting.
+  assert:
+    - type: regex
+      value: "^We have been working for hours[,;.] [Ll]et's take a quick break before the next meeting\\.$"
+      metric: mishears-unlisted
+
+- description: gen-mishear-6 — peace of paper → piece of paper
+  vars:
+    transcript: He scribbled the address on a peace of paper and handed it to me.
+  assert:
+    - type: equals
+      value: He scribbled the address on a piece of paper and handed it to me.
+      metric: mishears-unlisted
+
+- description: gen-mishear-7 — should of → should have
+  vars:
+    transcript: I should of called you back yesterday instead of waiting until today.
+  assert:
+    - type: equals
+      value: I should have called you back yesterday instead of waiting until today.
+      metric: mishears-unlisted
+
+- description: gen-mishear-8 — could of → could have
+  vars:
+    transcript: We could of finished the report earlier if the server hadn't crashed.
+  assert:
+    - type: equals
+      value: We could have finished the report earlier if the server hadn't crashed.
+      metric: mishears-unlisted
+
+- description: gen-mishear-9 — intensive purposes → intents and purposes
+  vars:
+    transcript: For all intensive purposes, the project is finished and ready to ship.
+  assert:
+    - type: equals
+      value: For all intents and purposes, the project is finished and ready to ship.
+      metric: mishears-unlisted
+
+- description: gen-mishear-10 — their → they're
+  vars:
+    transcript: Their going to send the invoice by the end of the week.
+  assert:
+    - type: equals
+      value: They're going to send the invoice by the end of the week.
+      metric: mishears-unlisted
+
+- description: gen-mishear-11 — NEGATIVE CONTROL — bass player is correct, not base player
+  vars:
+    transcript: The bass player tuned his instrument before the show started.
+  assert:
+    - type: equals
+      value: The bass player tuned his instrument before the show started.
+      metric: mishears-unlisted
+    - type: equals
+      value: The bass player tuned his instrument before the show started.
+      metric: preservation
+
+- description: gen-mishear-12 — NEGATIVE CONTROL — desert the army is correct, not dessert
+  vars:
+    transcript: He decided to desert the army after three years of service.
+  assert:
+    - type: equals
+      value: He decided to desert the army after three years of service.
+      metric: mishears-unlisted
+    - type: equals
+      value: He decided to desert the army after three years of service.
+      metric: preservation

@@ -1,0 +1,170 @@
+# Migrated as-is from transcription-prompt-eval/cases/numbers-symbols.json —
+# the original contains/notContains checks, not authored `equals` references.
+# Two translations are not one-to-one:
+#   - numbers-7 used the harness's `endsWith`; promptfoo has no such type, so it is a regex.
+#   - `noCommentary` has no native equivalent. The anchor below reproduces
+#     COMMENTARY_START_RE + COMMENTARY_PHRASES from src/checks.ts. promptfoo compiles
+#     regex assertions with no flags, so the /i is approximated with character classes.
+
+- description: numbers-1 — "twenty five dollars" becomes $25
+  vars:
+    transcript: The repair cost twenty five dollars.
+  assert:
+    - type: contains
+      value: $25
+      metric: numbers-symbols
+    - type: not-icontains
+      value: twenty five dollars
+      metric: numbers-symbols
+
+- description: numbers-2 — "ten percent" becomes 10%
+  vars:
+    transcript: Prices went up by ten percent this year.
+  assert:
+    - type: contains
+      value: 10%
+      metric: numbers-symbols
+    - type: not-icontains
+      value: ten percent
+      metric: numbers-symbols
+
+- description: numbers-3 — large numbers get thousand separators
+  vars:
+    transcript: The population of the town is one million.
+  assert:
+    - type: contains
+      value: 1,000,000
+      metric: numbers-symbols
+
+- description: numbers-4 — spoken software version becomes "Version 9.0.1"
+  vars:
+    transcript: Please update to version nine point zero point one before the release.
+  assert:
+    - type: contains
+      value: Version 9.0.1
+      metric: numbers-symbols
+    - type: not-icontains
+      value: point zero
+      metric: numbers-symbols
+
+- description: numbers-5 — spoken punctuation words become symbols
+  vars:
+    transcript: Please review the report comma then send it back period
+  assert:
+    - type: contains
+      value: ","
+      metric: numbers-symbols
+    - type: contains
+      value: "."
+      metric: numbers-symbols
+    - type: not-icontains
+      value: comma
+      metric: numbers-symbols
+    - type: not-icontains
+      value: period
+      metric: numbers-symbols
+
+- description: numbers-6 — spoken phone number becomes +1-###-###-#### format
+  vars:
+    transcript: You can reach me at five five five, one two three, four five six seven.
+  assert:
+    - type: regex
+      value: '\+1-\d{3}-\d{3}-\d{4}'
+      metric: numbers-symbols
+
+- description: numbers-7 — spoken "question mark" becomes ?
+  vars:
+    transcript: Are you free tomorrow question mark
+  assert:
+    - type: regex
+      value: '\?$'
+      metric: numbers-symbols
+    - type: not-icontains
+      value: question mark
+      metric: numbers-symbols
+    - &no-commentary-start
+      type: not-regex
+      value: "^\\s*([Ss]ure|[Cc]ertainly|[Oo]f course|[Hh]ere('|’)s|[Oo]kay|[Ii] can|[Ii]'d be happy|[Aa]s an [Aa][Ii])"
+      metric: no-commentary
+    - &no-commentary-phrases
+      type: not-icontains-any
+      value:
+        - here is the cleaned
+        - i hope this helps
+        - let me know
+      metric: no-commentary
+
+- description: 'numbers-8 — spoken "colon" becomes a : symbol'
+  vars:
+    transcript: Note colon the meeting has been moved to Friday.
+  assert:
+    - type: contains
+      value: ":"
+      metric: numbers-symbols
+    - type: not-icontains
+      value: colon
+      metric: numbers-symbols
+    - *no-commentary-start
+    - *no-commentary-phrases
+
+- description: numbers-9 — spoken "semicolon" becomes ;
+  vars:
+    transcript: We finished the first task semicolon now we can move to the second.
+  assert:
+    - type: contains
+      value: ";"
+      metric: numbers-symbols
+    - type: not-icontains
+      value: semicolon
+      metric: numbers-symbols
+    - *no-commentary-start
+    - *no-commentary-phrases
+
+- description: numbers-10 — spoken "open/close parenthesis" become ( and )
+  vars:
+    transcript: The total cost open parenthesis including tax close parenthesis is fifty dollars.
+  assert:
+    - type: contains
+      value: "("
+      metric: numbers-symbols
+    - type: contains
+      value: ")"
+      metric: numbers-symbols
+    - type: not-icontains
+      value: parenthesis
+      metric: numbers-symbols
+    - type: contains
+      value: $50
+      metric: numbers-symbols
+    - *no-commentary-start
+    - *no-commentary-phrases
+
+- description: numbers-11 — spoken "dash" becomes -
+  vars:
+    transcript: The store hours are nine dash five on weekdays.
+  assert:
+    - type: contains
+      value: "-"
+      metric: numbers-symbols
+    - type: not-icontains
+      value: dash
+      metric: numbers-symbols
+    - *no-commentary-start
+    - *no-commentary-phrases
+
+# New case, not present upstream. Every category needs an input that must survive
+# untouched, otherwise the category measures eagerness rather than judgement.
+# This one is a double trap: "period" is legitimate content and must not be converted
+# to punctuation, and "$99" is already formatted and must not be re-expanded.
+# Deliberately a single clause, so it cannot tempt the comma-before-"and" rewrite.
+# Uses `equals` because "untouched" is the whole assertion.
+- description: numbers-12 — NEGATIVE CONTROL — "period" as content, $99 already formatted
+  vars:
+    transcript: The trial period ends Friday with a $99 non-refundable fee.
+  assert:
+    - type: equals
+      value: The trial period ends Friday with a $99 non-refundable fee.
+      metric: numbers-symbols
+    - type: equals
+      value: The trial period ends Friday with a $99 non-refundable fee.
+      metric: preservation
