@@ -42,9 +42,8 @@ Full per-test results: [`results/latest.csv`](results/latest.csv) (312 rows). Ag
 
 <!-- BENCHMARK:END -->
 
-Regenerate with `make bench` (runs the suite; the published run took 14 min, longer
-with the server's prompt cache disabled) or `make report` (rebuilds the tables from the
-published run without re-running anything). Everything between the markers above is
+Regenerate with `make bench` (runs the suite) or `make report` (rebuilds the tables from
+the published run without re-running anything). Everything between the markers above is
 generated — edit `scripts/report.py`, not the tables.
 
 `make report` stays pinned to the eval recorded in `results/summary.json`, so a filtered
@@ -59,7 +58,7 @@ moves the pin.
 | chip | Apple M2 Max — 12 CPU cores (8P + 4E), 38 GPU cores |
 | memory | 96 GB unified |
 | macOS | 15.7.8 (24G824) |
-| server | oMLX 0.5.5 (2128) |
+| server | oMLX 0.5.5 (2128), prompt cache disabled |
 | engine | mlx 0.32.0, mlx-lm 0.31.3 |
 | promptfoo | 0.122.0 (pinned in the `Makefile`) |
 

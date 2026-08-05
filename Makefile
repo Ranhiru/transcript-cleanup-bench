@@ -19,8 +19,7 @@ eval: ## Run every test against the prompts (fast, concurrent — not for publis
 
 # The published benchmark. Serialised and uncached so the numbers mean something:
 # all four models share one inference server, so concurrent requests queue behind
-# each other, which perturbs correctness and not just timing. The published run
-# took 14min; expect longer with the server's prompt cache disabled.
+# each other, which perturbs correctness and not just timing.
 # promptfoo exits 100 when any test fails, which is the normal state of a
 # benchmark — tolerate it so the report still runs, but let any other non-zero
 # code (bad config, server down) abort before publishing numbers.
