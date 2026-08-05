@@ -97,6 +97,20 @@ def json_scores(blob: str) -> dict[str, float]:
     return out
 
 
+def pinned_eval_id() -> str | None:
+    """The eval currently published in the README, per results/summary.json.
+
+    The README is pinned to a specific eval rather than to whatever ran most
+    recently, so an ad-hoc `make eval` — a filtered diagnostic run, say — cannot
+    quietly replace the published benchmark with three rows. `make bench` passes
+    --latest to advance the pin deliberately.
+    """
+    if not SUMMARY.exists():
+        return None
+    value = as_dict(SUMMARY.read_text()).get("eval_id")
+    return str(value) if value else None
+
+
 def fetch(requested_id: str | None) -> tuple[str, list[Result]]:
     if not DB.exists():
         raise SystemExit(f"no promptfoo database at {DB} — run `make bench` first")
@@ -193,7 +207,7 @@ def md_table(rows: list[list[str]], align: list[str]) -> list[str]:
 RUN_NOTE = (
     "Run serialised (`maxConcurrency: 1`) and uncached, with every sampler value"
     " pinned in `promptfooconfig.yaml`. Greedy decoding, so re-running should"
-    " reproduce these numbers. Latency is not reported here — see the note below."
+    " reproduce these numbers."
 )
 
 
@@ -236,11 +250,21 @@ def render(eval_id: str, entries: list[Entry], metrics: list[str], total: int) -
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    _ = ap.add_argument("--eval-id", help="defaults to the most recent eval in the database")
+    _ = ap.add_argument("--eval-id", help="report on this specific eval")
+    _ = ap.add_argument(
+        "--latest",
+        action="store_true",
+        help="advance to the newest eval in the database (what `make bench` uses)",
+    )
     _ = ap.add_argument("--stdout", action="store_true", help="print instead of editing README")
     args = ap.parse_args()
 
-    eval_id, results = fetch(args.eval_id)
+    # Default: stay on the eval the README already publishes.
+    requested = args.eval_id or (None if args.latest else pinned_eval_id())
+    if requested is not None and not args.eval_id:
+        print(f"pinned to {requested} (--latest to advance)")
+
+    eval_id, results = fetch(requested)
     entries, metrics = aggregate(results)
     block = render(eval_id, entries, metrics, len(results))
 

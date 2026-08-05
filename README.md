@@ -23,7 +23,7 @@ Ranked by tests passed. Best result first.
 | 7 | Qwen 3.6 35B-A3B | v1 | 34/39 | `████████░` 87.2% |
 | 8 | Gemma 4 E2B | v1 | 31/39 | `███████░░` 79.5% |
 
-Run serialised (`maxConcurrency: 1`) and uncached, with every sampler value pinned in `promptfooconfig.yaml`. Greedy decoding, so re-running should reproduce these numbers. Latency is not reported here — see the note below.
+Run serialised (`maxConcurrency: 1`) and uncached, with every sampler value pinned in `promptfooconfig.yaml`. Greedy decoding, so re-running should reproduce these numbers.
 
 ### By category
 
@@ -42,31 +42,28 @@ Full per-test results: [`results/latest.csv`](results/latest.csv) (312 rows). Ag
 
 <!-- BENCHMARK:END -->
 
-Regenerate with `make bench` (runs the suite, ~14 min) or `make report` (rebuilds the
-tables from the last run without re-running anything). Everything between the markers
-above is generated — edit `scripts/report.py`, not the tables.
+Regenerate with `make bench` (runs the suite; the published run took 14 min, longer
+with the server's prompt cache disabled) or `make report` (rebuilds the tables from the
+published run without re-running anything). Everything between the markers above is
+generated — edit `scripts/report.py`, not the tables.
 
-### Why there is no latency column
-
-promptfoo's recorded latency is not usable here. It logged **10 ms** for a request that
-takes **~360 ms** by wall clock — a figure OMLX confirms in its own `total_time` field.
-The same 12-token completion was recorded anywhere between 6 ms and 7,961 ms depending
-only on whether OMLX's KV cache held the prompt prefix, so ranking on it would rank
-cache luck rather than models. promptfoo discards the server's `total_time`, so the
-stored results cannot be corrected after the fact.
-
-Measuring this properly needs a harness that times the requests itself, warms each
-model first, and reports tokens/second rather than raw wall clock. Not built yet.
+`make report` stays pinned to the eval recorded in `results/summary.json`, so a filtered
+`make eval` cannot quietly replace the benchmark with a handful of rows. `make bench`
+moves the pin.
 
 ### Hardware and server
 
-<!-- Fill these in before publishing. -->
-
 | | |
 |:---|:---|
-| machine | — |
-| memory | — |
-| OMLX version | — |
+| machine | MacBook Pro (Mac14,6) |
+| chip | Apple M2 Max — 12 CPU cores (8P + 4E), 38 GPU cores |
+| memory | 96 GB unified |
+| macOS | 15.7.8 (24G824) |
+| server | oMLX 0.5.5 (2128) |
+| engine | mlx 0.32.0, mlx-lm 0.31.3 |
+| promptfoo | 0.122.0 (pinned in the `Makefile`) |
+
+All four models are 4-bit quantised and served from a single local oMLX instance.
 
 Sampler settings are pinned per provider in `promptfooconfig.yaml` rather than taken
 from the OMLX defaults, so the settings that produced these numbers are visible in the

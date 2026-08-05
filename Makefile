@@ -19,16 +19,20 @@ eval: ## Run every test against the prompts (fast, concurrent — not for publis
 
 # The published benchmark. Serialised and uncached so the numbers mean something:
 # all four models share one inference server, so concurrent requests queue behind
-# each other and latency measures scheduling rather than the model. Takes ~12min.
+# each other, which perturbs correctness and not just timing. The published run
+# took 14min; expect longer with the server's prompt cache disabled.
 # promptfoo exits 100 when any test fails, which is the normal state of a
 # benchmark — tolerate it so the report still runs, but let any other non-zero
 # code (bad config, server down) abort before publishing numbers.
 bench: ## Run the publishable benchmark, then regenerate the README
 	mkdir -p results
 	$(PROMPTFOO) eval --no-cache -j 1 -o results/latest.csv $(ARGS) || test $$? -eq 100
-	@$(MAKE) --no-print-directory report
+	python3 scripts/report.py --latest
 
-report: ## Regenerate the README summary from the last run (no re-run)
+# Defaults to the eval the README already publishes, not whatever ran last, so a
+# filtered `make eval` cannot quietly overwrite the benchmark. Use `make bench`
+# (or ARGS="--latest") to move the pin.
+report: ## Rebuild the README tables from the published run (no re-run)
 	python3 scripts/report.py $(ARGS)
 
 view: ## Open the results grid in a browser
