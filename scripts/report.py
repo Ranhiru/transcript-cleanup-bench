@@ -31,18 +31,6 @@ SUMMARY = REPO / "results" / "summary.json"
 START = "<!-- BENCHMARK:START -->"
 END = "<!-- BENCHMARK:END -->"
 
-# Metric column order. Anything not listed is appended alphabetically, so a new
-# metric appears in the table without needing a code change here.
-METRIC_ORDER = [
-    "happy-path",
-    "spelling",
-    "mishears-listed",
-    "mishears-unlisted",
-    "numbers-symbols",
-    "preservation",
-    "no-commentary",
-]
-
 BAR_WIDTH = 9
 
 
@@ -151,23 +139,15 @@ def fetch(requested_id: str | None) -> tuple[str, list[Result]]:
     return eval_id, results
 
 
-def aggregate(results: list[Result]) -> tuple[list[Entry], list[str]]:
+def aggregate(results: list[Result]) -> list[Entry]:
     """One Entry per (model, prompt) — a leaderboard row.
 
-    Latency is deliberately absent. promptfoo's recorded latency_ms is far too
-    low to be real: it logged 10ms for a request that takes ~360ms by wall clock,
-    which OMLX itself confirms in its `total_time` field. The stored response
-    drops that field, so there is nothing here to correct it with. Measuring
-    latency needs a harness that times the requests itself.
+    Per-category scores are kept on each Entry for results/summary.json, but the
+    README publishes only the leaderboard.
     """
     groups: dict[tuple[str, str], list[Result]] = defaultdict(list)
     for r in results:
         groups[(r.model, r.prompt)].append(r)
-
-    seen: set[str] = set()
-    for r in results:
-        seen.update(r.metrics)
-    metrics = [m for m in METRIC_ORDER if m in seen] + sorted(seen - set(METRIC_ORDER))
 
     entries: list[Entry] = []
     for (model, prompt), rows in groups.items():
@@ -194,7 +174,7 @@ def aggregate(results: list[Result]) -> tuple[list[Entry], list[str]]:
     # Winner = most tests passed. Model and prompt break ties so the ordering is
     # stable between runs and the README diff stays readable.
     entries.sort(key=lambda e: (-e.passed, e.model, e.prompt))
-    return entries, metrics
+    return entries
 
 
 def md_table(rows: list[list[str]], align: list[str]) -> list[str]:
@@ -204,14 +184,7 @@ def md_table(rows: list[list[str]], align: list[str]) -> list[str]:
     return out
 
 
-RUN_NOTE = (
-    "Run serialised (`maxConcurrency: 1`) and uncached, with every sampler value"
-    " pinned in `promptfooconfig.yaml`. Greedy decoding, so re-running should"
-    " reproduce these numbers."
-)
-
-
-def render(eval_id: str, entries: list[Entry], metrics: list[str], total: int) -> str:
+def render(eval_id: str, entries: list[Entry], total: int) -> str:
     lines: list[str] = ["### Leaderboard", ""]
     lines.append("Ranked by tests passed. Best result first.")
     lines.append("")
@@ -228,19 +201,10 @@ def render(eval_id: str, entries: list[Entry], metrics: list[str], total: int) -
             ]
         )
     lines += md_table(board, ["r", "l", "l", "r", "l"])
-    lines += ["", RUN_NOTE, "", "### By category", ""]
-
-    by_metric = [["model", "prompt"] + metrics]
-    for e in entries:
-        by_metric.append(
-            [e.model, e.prompt]
-            + [f"{e.metrics[m]}%" if m in e.metrics else "—" for m in metrics]
-        )
-    lines += md_table(by_metric, ["l", "l"] + ["r"] * len(metrics))
     footer = " ".join(
         [
             f"Full per-test results: [`results/latest.csv`](results/latest.csv) ({total} rows).",
-            "Aggregates: [`results/summary.json`](results/summary.json).",
+            "Per-category scores: [`results/summary.json`](results/summary.json).",
             f"Eval id `{eval_id}`.",
         ]
     )
@@ -265,8 +229,8 @@ def main() -> None:
         print(f"pinned to {requested} (--latest to advance)")
 
     eval_id, results = fetch(requested)
-    entries, metrics = aggregate(results)
-    block = render(eval_id, entries, metrics, len(results))
+    entries = aggregate(results)
+    block = render(eval_id, entries, len(results))
 
     SUMMARY.parent.mkdir(parents=True, exist_ok=True)
     _ = SUMMARY.write_text(
