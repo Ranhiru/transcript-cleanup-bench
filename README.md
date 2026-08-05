@@ -52,9 +52,14 @@ Bump it deliberately and re-run the full suite.
 
 - `Makefile` — entry point; pins the promptfoo version
 - `promptfooconfig.yaml` — the whole eval: prompts, providers, and tests
-- `prompt-v1.txt` — baseline prompt, with `{{transcript}}` as the input placeholder
-- `prompt-v2.txt` — revised prompt, compared against v1 in every run
+- `prompts/v1.txt` — baseline prompt, with `{{transcript}}` as the input placeholder
+- `prompts/v2.txt` — revised prompt, compared against v1 in every run
 - `tests/*.yaml` — one file per case category, picked up by a glob
+
+Prompts are listed one-by-one in `promptfooconfig.yaml` instead of globbed like the
+tests. The `v1`/`v2` labels appear in every result and are what the metric queries
+group on, and a glob both drops them for filenames and orders by the filesystem —
+which put v2 in the first column. Adding a prompt means adding a line to the config.
 
 Both prompts come from the `transcription-prompt-eval` repo, where they are `prompt.txt`
 (sha `3f57dab2`) and `prompt-v9.txt` (sha `e4fca361`). The v1/v2 numbering is local to
