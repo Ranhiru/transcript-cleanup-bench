@@ -1,54 +1,48 @@
-# Pinned promptfoo version — bump deliberately, never track @latest,
-# so eval results stay comparable between runs.
-PROMPTFOO_VERSION := 0.122.0
-PROMPTFOO := npx --yes promptfoo@$(PROMPTFOO_VERSION)
-
-# Scope promptfoo's state — result database, response cache, logs — to this repo
-# instead of the shared ~/.promptfoo. Without this, `make report` reads a database
-# holding every promptfoo run on the machine, so an eval from an unrelated project
-# could land in this README. promptfoo creates the directory on demand.
-# Exported, not just set, so scripts/report.py resolves the same database.
-export PROMPTFOO_CONFIG_DIR := $(CURDIR)/.promptfoo
-
-# Extra flags for eval, e.g. make eval ARGS="--filter-pattern mishears"
+PYTHON := .venv/bin/python
+RUN := PYTHONPATH=src $(PYTHON)
 ARGS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help eval bench report view version install clean
+.PHONY: help setup up down status sync dataset-export dataset-check eval bench report view test
 
-help: ## Show the available targets
-	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "  promptfoo version: $(PROMPTFOO_VERSION)"
+help: ## Show available targets
+	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-eval: ## Run every test against the prompts (fast, concurrent — not for publishing)
-	$(PROMPTFOO) eval $(ARGS)
+setup: ## Install locked dependencies and validate .env
+	uv sync --frozen --all-groups
+	$(RUN) scripts/check_env.py
 
-# The published benchmark. Serialised and uncached so the numbers mean something:
-# all four models share one inference server, so concurrent requests queue behind
-# each other, which perturbs correctness and not just timing.
-# promptfoo exits 100 when any test fails, which is the normal state of a
-# benchmark — tolerate it so the report still runs, but let any other non-zero
-# code (bad config, server down) abort before publishing numbers.
-bench: ## Run the publishable benchmark, then regenerate the README
-	mkdir -p results
-	$(PROMPTFOO) eval --no-cache -j 1 -o results/latest.csv $(ARGS) || test $$? -eq 100
-	python3 scripts/report.py --latest
+up: ## Start Langfuse and the Handy tracing proxy
+	$(RUN) scripts/check_env.py
+	docker compose up --detach --build
 
-# Defaults to the eval the README already publishes, not whatever ran last, so a
-# filtered `make eval` cannot quietly overwrite the benchmark. Use `make bench`
-# (or ARGS="--latest") to move the pin.
-report: ## Rebuild the README tables from the published run (no re-run)
-	python3 scripts/report.py $(ARGS)
+down: ## Stop the stack without deleting volumes
+	docker compose down
 
-view: ## Open the results grid in a browser
-	$(PROMPTFOO) view
+status: ## Show local stack status
+	docker compose ps
 
-version: ## Print the promptfoo version actually being run
-	$(PROMPTFOO) --version
+sync: ## Bootstrap the dataset and synchronize evaluator/rule
+	$(RUN) scripts/wait_for_langfuse.py
+	$(RUN) -m transcript_cleanup_bench.sync
 
-install: ## Pre-download the pinned version into the npx cache
-	npx --yes promptfoo@$(PROMPTFOO_VERSION) --version
+dataset-export: ## Refresh the tracked dataset snapshot atomically
+	$(RUN) -m transcript_cleanup_bench.dataset export
 
-clean: ## Delete cached eval results
-	$(PROMPTFOO) cache clear
+dataset-check: ## Check the tracked snapshot for Langfuse drift
+	$(RUN) -m transcript_cleanup_bench.dataset check
+
+eval: ## Run diagnostic experiments (default concurrency 8)
+	$(RUN) -m transcript_cleanup_bench.runner $(ARGS)
+
+bench: ## Publish the full serial 360-execution benchmark
+	$(RUN) -m transcript_cleanup_bench.runner --publish $(ARGS)
+
+report: ## Rebuild README from the published summary only
+	$(RUN) scripts/report.py
+
+view: ## Open Langfuse in the default browser
+	open http://localhost:4001
+
+test: ## Run the test suite
+	PYTHONPATH=src .venv/bin/pytest

@@ -1,0 +1,26 @@
+[project]
+name = "transcript-cleanup-bench"
+version = "0.1.0"
+description = "Langfuse-backed benchmark and tracing proxy for transcript cleanup"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116",
+  "httpx>=0.28",
+  "langfuse==4.14.1",
+  "pyyaml>=6.0",
+  "uvicorn>=0.35",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4",
+  "pytest-asyncio>=1.1",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["test"]
+
+[tool.ruff]
+line-length = 100
+

@@ -2,3 +2,7 @@
 # Holds the result database (tens of MB), the response cache and logs — all
 # machine-local. The published numbers live in results/, which is tracked.
 .promptfoo/
+.env
+.venv/
+__pycache__/
+.pytest_cache/
