@@ -35,12 +35,15 @@ Install Docker, `uv`, GNU Make, and configure any OpenAI-compatible API exposing
 model IDs.
 
 ```fish
-cp .env.example .env
-# Replace every change-me value, then:
+make init-env
 make setup
 make up
 make sync
 ```
+
+`make init-env` preserves existing configured values, securely generates all missing local
+credentials, and writes `.env` with owner-only permissions. It prompts for the upstream
+`OPENAI_API_KEY`; generated credentials remain local because `.env` is ignored by Git.
 
 Configure Handy's custom OpenAI provider with base URL `http://localhost:4000/v1`. The proxy
 injects `OPENAI_API_KEY`, so Handy does not need the upstream credential. Set `OPENAI_API_HOST`
