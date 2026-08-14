@@ -98,7 +98,7 @@ def atomic_write(path: Path, content: str) -> None:
 
 def main() -> None:
     existing = dict(dotenv_values(TARGET)) if TARGET.exists() else {}
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("OPENAI_API_KEY") or existing.get("OPENAI_API_KEY")
     if not usable(api_key):
         api_key = getpass.getpass("OPENAI_API_KEY: ")
     if not usable(api_key):

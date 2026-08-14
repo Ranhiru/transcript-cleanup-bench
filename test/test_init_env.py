@@ -18,6 +18,8 @@ def test_build_values_generates_secrets_and_matches_langfuse_keys() -> None:
 
     assert values["OPENAI_API_KEY"] == "local-key"
     assert values["OPENAI_API_HOST"] == "http://localhost:8000/v1"
+    assert values["LANGFUSE_PROMPT_NAME"] == "transcript-cleanup"
+    assert values["LANGFUSE_PROMPT_LABEL"] == "production"
     assert values["LANGFUSE_PUBLIC_KEY"] == values["LANGFUSE_INIT_PROJECT_PUBLIC_KEY"]
     assert values["LANGFUSE_SECRET_KEY"] == values["LANGFUSE_INIT_PROJECT_SECRET_KEY"]
     assert len(values["ENCRYPTION_KEY"]) == 64
@@ -43,3 +45,25 @@ def test_atomic_write_uses_owner_only_permissions(tmp_path) -> None:
 
     assert dotenv_values(target) == {"KEY": "value"}
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_main_reuses_existing_api_key_when_adding_new_defaults(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    target = tmp_path / ".env"
+    target.write_text("OPENAI_API_KEY=existing-key\n")
+    monkeypatch.setattr(init_env, "TARGET", target)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def unexpected_prompt(_message):
+        raise AssertionError("existing API key should avoid an interactive prompt")
+
+    monkeypatch.setattr(init_env.getpass, "getpass", unexpected_prompt)
+
+    init_env.main()
+
+    values = dotenv_values(target)
+    assert values["OPENAI_API_KEY"] == "existing-key"
+    assert values["LANGFUSE_PROMPT_NAME"] == "transcript-cleanup"
+    assert values["LANGFUSE_PROMPT_LABEL"] == "production"
+    assert capsys.readouterr().out == "Generated and secured .env\n"

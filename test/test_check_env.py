@@ -13,6 +13,8 @@ def valid_values() -> dict[str, str]:
     values = {
         "LANGFUSE_PUBLIC_KEY": "public",
         "LANGFUSE_SECRET_KEY": "secret",
+        "LANGFUSE_PROMPT_NAME": "transcript-cleanup",
+        "LANGFUSE_PROMPT_LABEL": "production",
         "OPENAI_API_HOST": "http://localhost:8000/v1",
         "OPENAI_API_KEY": "provider-key",
         "LANGFUSE_INIT_ORG_ID": "org",

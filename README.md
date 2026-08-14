@@ -7,8 +7,8 @@ OpenAI-compatible tracing proxy for [Handy](https://handy.computer/).
 Handy → proxy localhost:4000 → OpenAI-compatible API
              └── traces → Langfuse localhost:4001
 
-Langfuse dataset → Langfuse experiment runner → OpenAI-compatible API
-                 └── traces, scores, and comparisons → Langfuse
+Langfuse prompt + dataset → experiment runner → OpenAI-compatible API
+                           └── traces, scores, and comparisons → Langfuse
 ```
 
 Langfuse is the sole benchmark results store. The tracked JSONL dataset is a reproducible seed
@@ -26,8 +26,9 @@ for initializing a fresh local project, not a second results or schema system.
 | engine | mlx 0.32.0, mlx-lm 0.31.3 |
 | Langfuse | 4.0.0 |
 
-Sampler settings, prompt files, and model IDs are pinned in `benchmark.yaml`. Qwen uses thinking
-disabled; Gemma models use their provider defaults.
+Sampler settings and model IDs are pinned in `benchmark.yaml`. The prompt is managed in Langfuse;
+the committed prompt files are used only to seed a fresh project. Qwen uses thinking disabled;
+Gemma models use their provider defaults.
 
 ## Setup
 
@@ -49,21 +50,50 @@ Configure Handy's custom OpenAI provider with base URL `http://localhost:4000/v1
 injects `OPENAI_API_KEY`, so Handy does not need the upstream credential. Set `OPENAI_API_HOST`
 to switch between a local server and a cloud provider. Both streaming and
 non-streaming Chat Completions are supported and traced through Langfuse's OpenAI integration.
+Set Handy's custom prompt template to exactly `${output}` so its single user message contains only
+the raw transcript. The proxy rejects other message shapes and replaces that message with the
+compiled `LANGFUSE_PROMPT_NAME` / `LANGFUSE_PROMPT_LABEL` chat prompt.
+
+`make sync` creates two prompt versions only when `transcript-cleanup` does not exist: v1 receives
+the `baseline` label and v2 receives `production`. After creation, Langfuse is authoritative and
+sync never changes prompt content or labels. An existing prompt must be a chat prompt with a
+`production` label.
 
 ## Run experiments
 
 ```fish
 make eval
-make eval ARGS="--case happy-1 --model 'Gemma 4 E4B' --prompt v2"
+make eval ARGS="--case happy-1 --model 'Gemma 4 E4B'"
+make eval ARGS="--prompt-label production"
+make eval ARGS="--prompt-label candidate"
+make eval ARGS="--prompt-version 2"
+make eval ARGS="--prompt-label candidate --prompt-version 2"
 make eval ARGS="--concurrency 2"
 make status
 make view
 make down
 ```
 
-Each model-and-prompt pair is a Langfuse dataset experiment. `make eval` prints its aggregate
-summary and Langfuse URL. Case, model, prompt, and concurrency filters only change that run; all
-traces, dataset-run links, failures, scores, and comparisons remain in Langfuse.
+Each model-and-resolved-prompt-version pair is a Langfuse dataset experiment. With no prompt
+selector, `make eval` uses `LANGFUSE_PROMPT_LABEL` (`production` by default). Repeat
+`--prompt-label` and `--prompt-version` to compare several selectors in one invocation; selectors
+that resolve to the same numeric version are run once. `make eval` prints each aggregate summary
+and Langfuse URL. Case, model, prompt, and concurrency filters only change that run; all traces,
+dataset-run links, prompt-version links, failures, scores, and comparisons remain in Langfuse.
+
+## Prompt workflow
+
+Edit prompts and create versions in Langfuse, then label a version `candidate`. Compare it with
+`production` in the Langfuse UI or run:
+
+```fish
+make eval ARGS="--prompt-label production --prompt-label candidate"
+```
+
+After a successful comparison, move the `production` label to the winning version in Langfuse.
+The proxy disables prompt caching, so new label assignments apply to the next Handy request. It
+has no local fallback: if Langfuse cannot resolve the configured prompt, completions fail with an
+OpenAI-style 503 response.
 
 The dataset seed can be refreshed deliberately with `make dataset-export`, and
 `make dataset-check` compares it with the current Langfuse dataset.

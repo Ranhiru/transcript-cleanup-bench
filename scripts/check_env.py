@@ -10,6 +10,8 @@ from dotenv import dotenv_values
 REQUIRED = {
     "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_SECRET_KEY",
+    "LANGFUSE_PROMPT_NAME",
+    "LANGFUSE_PROMPT_LABEL",
     "OPENAI_API_HOST",
     "OPENAI_API_KEY",
     "LANGFUSE_INIT_ORG_ID",

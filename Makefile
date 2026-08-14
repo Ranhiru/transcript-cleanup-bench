@@ -25,8 +25,9 @@ down: ## Stop the stack without deleting volumes
 status: ## Show local stack status
 	docker compose ps
 
-sync: ## Bootstrap the Langfuse dataset from the tracked seed
+sync: ## Bootstrap Langfuse prompts and dataset from tracked seeds
 	$(RUN) scripts/wait_for_langfuse.py
+	$(RUN) -m transcript_cleanup_bench.prompts
 	$(RUN) -m transcript_cleanup_bench.dataset bootstrap
 
 dataset-export: ## Refresh the tracked dataset snapshot atomically

@@ -1,12 +1,6 @@
 dataset: evaluation/transcript-cleanup
 concurrency: 8
 
-prompts:
-  - id: v1
-    file: prompts/v1.txt
-  - id: v2
-    file: prompts/v2.txt
-
 models:
   - id: gemma-4-e4b-it-4bit
     label: Gemma 4 E4B

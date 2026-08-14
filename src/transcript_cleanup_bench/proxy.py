@@ -7,7 +7,10 @@ from typing import Any, AsyncIterator
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from langfuse import Langfuse
 from langfuse.openai import openai
+
+from .prompts import prompt_label, prompt_name, resolve
 
 REPO = Path(__file__).resolve().parents[2]
 load_dotenv(REPO / ".env")
@@ -32,6 +35,15 @@ def client() -> openai.AsyncOpenAI:
     )
 
 
+def langfuse_client() -> Langfuse:
+    return Langfuse(
+        public_key=os.environ.get("LANGFUSE_PUBLIC_KEY"),
+        secret_key=os.environ.get("LANGFUSE_SECRET_KEY"),
+        base_url=os.environ.get("LANGFUSE_BASE_URL", "http://localhost:4001"),
+        additional_headers={"x-langfuse-ingestion-version": "4"},
+    )
+
+
 def completion_options(body: dict[str, Any]) -> dict[str, Any]:
     options = {key: value for key, value in body.items() if key not in EXTRA_BODY_OPTIONS}
     extensions = {key: body[key] for key in EXTRA_BODY_OPTIONS if key in body}
@@ -40,18 +52,57 @@ def completion_options(body: dict[str, Any]) -> dict[str, Any]:
     return options
 
 
-def error_response(error: Exception) -> JSONResponse:
+def openai_error(
+    status_code: int,
+    *,
+    message: str,
+    error_type: str,
+    code: str,
+    param: str | None = None,
+) -> JSONResponse:
     return JSONResponse(
-        status_code=502,
+        status_code=status_code,
         content={
             "error": {
-                "message": f"OpenAI-compatible API is unavailable: {type(error).__name__}",
-                "type": "upstream_connection_error",
-                "param": None,
-                "code": "upstream_unavailable",
+                "message": message,
+                "type": error_type,
+                "param": param,
+                "code": code,
             }
         },
     )
+
+
+def upstream_error(error: Exception) -> JSONResponse:
+    return openai_error(
+        502,
+        message=f"OpenAI-compatible API is unavailable: {type(error).__name__}",
+        error_type="upstream_connection_error",
+        code="upstream_unavailable",
+    )
+
+
+def invalid_messages() -> JSONResponse:
+    return openai_error(
+        400,
+        message="messages must contain exactly one user message with string content",
+        error_type="invalid_request_error",
+        code="invalid_messages",
+        param="messages",
+    )
+
+
+def raw_transcript(body: Any) -> str | None:
+    if not isinstance(body, dict):
+        return None
+    messages = body.get("messages")
+    if not isinstance(messages, list) or len(messages) != 1:
+        return None
+    message = messages[0]
+    if not isinstance(message, dict) or message.get("role") != "user":
+        return None
+    content = message.get("content")
+    return content if isinstance(content, str) else None
 
 
 @app.get("/healthz")
@@ -69,20 +120,45 @@ async def models():
             media_type="application/json",
         )
     except Exception as error:
-        return error_response(error)
+        return upstream_error(error)
     finally:
         await upstream.close()
 
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
-    options = completion_options(await request.json())
+    try:
+        body = await request.json()
+    except Exception:
+        return invalid_messages()
+    transcript = raw_transcript(body)
+    if transcript is None:
+        return invalid_messages()
+
+    try:
+        langfuse_prompt = resolve(
+            langfuse_client(),
+            name=prompt_name(),
+            label=prompt_label(),
+        )
+        compiled_messages = langfuse_prompt.compile(transcript=transcript)
+    except Exception as error:
+        return openai_error(
+            503,
+            message=f"Langfuse prompt is unavailable: {type(error).__name__}",
+            error_type="prompt_service_error",
+            code="prompt_unavailable",
+        )
+
+    body["messages"] = compiled_messages
+    options = completion_options(body)
+    options["langfuse_prompt"] = langfuse_prompt
     upstream = client()
     try:
         completion = await upstream.chat.completions.create(**options)
     except Exception as error:
         await upstream.close()
-        return error_response(error)
+        return upstream_error(error)
 
     if options.get("stream") is True:
         async def events() -> AsyncIterator[str]:

@@ -86,6 +86,3 @@ FINAL CHECK
 ✓ Is your output ONLY the cleaned transcript with no commentary?
 
 Return only the cleaned transcript.
-
-Transcript:
-{{transcript}}

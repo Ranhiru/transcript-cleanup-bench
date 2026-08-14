@@ -91,6 +91,8 @@ services:
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_PROMPT_NAME: ${LANGFUSE_PROMPT_NAME}
+      LANGFUSE_PROMPT_LABEL: ${LANGFUSE_PROMPT_LABEL}
       TELEMETRY_ENABLED: "false"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/healthz')"]
