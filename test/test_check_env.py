@@ -13,7 +13,8 @@ def valid_values() -> dict[str, str]:
     values = {
         "LANGFUSE_PUBLIC_KEY": "public",
         "LANGFUSE_SECRET_KEY": "secret",
-        "OMLX_API_KEY": "omlx",
+        "OPENAI_API_HOST": "http://localhost:8000/v1",
+        "OPENAI_API_KEY": "provider-key",
         "LANGFUSE_INIT_ORG_ID": "org",
         "LANGFUSE_INIT_PROJECT_ID": "project",
         "LANGFUSE_INIT_PROJECT_PUBLIC_KEY": "public",
@@ -50,20 +51,20 @@ def test_dotenv_quoting_and_valid_values(monkeypatch, tmp_path, capsys) -> None:
 
 def test_environment_takes_precedence(monkeypatch, tmp_path) -> None:
     values = valid_values()
-    values["OMLX_API_KEY"] = "change-me"
+    values["OPENAI_API_KEY"] = "change-me"
     write_env(tmp_path / ".env", values)
     monkeypatch.chdir(tmp_path)
     for key in values:
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("OMLX_API_KEY", "from-environment")
+    monkeypatch.setenv("OPENAI_API_KEY", "from-environment")
     runpy.run_path(str(SCRIPT), run_name="__main__")
 
 
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [
-        ("OMLX_API_KEY", "", "missing"),
-        ("OMLX_API_KEY", "change-me", "replace placeholders"),
+        ("OPENAI_API_KEY", "", "missing"),
+        ("OPENAI_API_KEY", "change-me", "replace placeholders"),
         ("ENCRYPTION_KEY", "not-hex", "64 hexadecimal"),
         ("LANGFUSE_PUBLIC_KEY", "different", "must match"),
     ],

@@ -1,5 +1,4 @@
 dataset: evaluation/transcript-cleanup
-omlx_url: http://localhost:8000/v1
 concurrency: 8
 
 prompts:

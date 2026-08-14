@@ -13,29 +13,37 @@ from langfuse.openai import openai
 REPO = Path(__file__).resolve().parents[2]
 load_dotenv(REPO / ".env")
 
-app = FastAPI(title="oMLX tracing proxy")
+app = FastAPI(title="OpenAI-compatible tracing proxy")
 
-OMLX_OPTIONS = {"top_k", "min_p", "repetition_penalty", "chat_template_kwargs"}
+EXTRA_BODY_OPTIONS = {"top_k", "min_p", "repetition_penalty", "chat_template_kwargs"}
 
 
 def configured_models() -> list[dict[str, Any]]:
     config = yaml.safe_load((REPO / "benchmark.yaml").read_text())
     return [
-        {"id": model["id"], "object": "model", "created": 0, "owned_by": "omlx"}
+        {"id": model["id"], "object": "model", "created": 0, "owned_by": "configured"}
         for model in config["models"]
     ]
 
 
+def api_host() -> str:
+    host = os.environ["OPENAI_API_HOST"]
+    if os.environ.get("CONTAINERIZED") == "true":
+        host = host.replace("://localhost", "://host.docker.internal")
+        host = host.replace("://127.0.0.1", "://host.docker.internal")
+    return host
+
+
 def client() -> openai.AsyncOpenAI:
     return openai.AsyncOpenAI(
-        base_url=os.environ.get("OMLX_BASE_URL", "http://host.docker.internal:8000/v1"),
-        api_key=os.environ["OMLX_API_KEY"],
+        base_url=api_host(),
+        api_key=os.environ["OPENAI_API_KEY"],
     )
 
 
 def completion_options(body: dict[str, Any]) -> dict[str, Any]:
-    options = {key: value for key, value in body.items() if key not in OMLX_OPTIONS}
-    extensions = {key: body[key] for key in OMLX_OPTIONS if key in body}
+    options = {key: value for key, value in body.items() if key not in EXTRA_BODY_OPTIONS}
+    extensions = {key: body[key] for key in EXTRA_BODY_OPTIONS if key in body}
     if extensions:
         options["extra_body"] = {**options.get("extra_body", {}), **extensions}
     return options
@@ -46,7 +54,7 @@ def error_response(error: Exception) -> JSONResponse:
         status_code=502,
         content={
             "error": {
-                "message": f"oMLX is unavailable: {type(error).__name__}",
+                "message": f"OpenAI-compatible API is unavailable: {type(error).__name__}",
                 "type": "upstream_connection_error",
                 "param": None,
                 "code": "upstream_unavailable",

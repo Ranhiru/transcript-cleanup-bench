@@ -85,8 +85,9 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     environment:
-      OMLX_BASE_URL: http://host.docker.internal:8000/v1
-      OMLX_API_KEY: ${OMLX_API_KEY}
+      CONTAINERIZED: "true"
+      OPENAI_API_HOST: ${OPENAI_API_HOST}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}

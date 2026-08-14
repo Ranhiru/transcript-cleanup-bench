@@ -4,10 +4,10 @@ Benchmarks local LLM transcript cleanup with Langfuse experiments. It also provi
 OpenAI-compatible tracing proxy for [Handy](https://handy.computer/).
 
 ```text
-Handy → proxy localhost:4000 → oMLX localhost:8000
+Handy → proxy localhost:4000 → OpenAI-compatible API
              └── traces → Langfuse localhost:4001
 
-Langfuse dataset → Langfuse experiment runner → oMLX
+Langfuse dataset → Langfuse experiment runner → OpenAI-compatible API
                  └── traces, scores, and comparisons → Langfuse
 ```
 
@@ -27,11 +27,11 @@ for initializing a fresh local project, not a second results or schema system.
 | Langfuse | 4.0.0 |
 
 Sampler settings, prompt files, and model IDs are pinned in `benchmark.yaml`. Qwen uses thinking
-disabled; Gemma models use their oMLX defaults.
+disabled; Gemma models use their provider defaults.
 
 ## Setup
 
-Install Docker, `uv`, GNU Make, and an OpenAI-compatible oMLX server exposing the configured
+Install Docker, `uv`, GNU Make, and configure any OpenAI-compatible API exposing the selected
 model IDs.
 
 ```fish
@@ -43,7 +43,8 @@ make sync
 ```
 
 Configure Handy's custom OpenAI provider with base URL `http://localhost:4000/v1`. The proxy
-injects `OMLX_API_KEY`, so Handy does not need the oMLX credential. Both streaming and
+injects `OPENAI_API_KEY`, so Handy does not need the upstream credential. Set `OPENAI_API_HOST`
+to switch between a local server and a cloud provider. Both streaming and
 non-streaming Chat Completions are supported and traced through Langfuse's OpenAI integration.
 
 ## Run experiments

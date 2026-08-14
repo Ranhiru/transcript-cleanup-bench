@@ -127,8 +127,8 @@ def run_pair(
     }
     llm = ChatOpenAI(
         model=model["id"],
-        base_url=config["omlx_url"],
-        api_key=os.environ["OMLX_API_KEY"],
+        base_url=os.environ["OPENAI_API_HOST"],
+        api_key=os.environ["OPENAI_API_KEY"],
         temperature=sampler["temperature"],
         max_tokens=sampler["max_tokens"],
         top_p=sampler["top_p"],

@@ -32,7 +32,8 @@ def test_run_pair_passes_task_evaluator_metadata_and_concurrency(monkeypatch) ->
     FakeModel.instances.clear()
     monkeypatch.setattr(experiment, "ChatOpenAI", FakeModel)
     monkeypatch.setattr(experiment, "CallbackHandler", lambda: "callback")
-    monkeypatch.setenv("OMLX_API_KEY", "secret")
+    monkeypatch.setenv("OPENAI_API_HOST", "https://provider.example/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
     dataset = FakeDataset()
     config = experiment.load_config()
     model = config["models"][-1]
@@ -51,6 +52,7 @@ def test_run_pair_passes_task_evaluator_metadata_and_concurrency(monkeypatch) ->
     item = SimpleNamespace(input={"transcript": "dirty"})
     assert asyncio.run(dataset.call["task"](item=item)) == "clean"
     llm = FakeModel.instances[0]
+    assert llm.options["base_url"] == "https://provider.example/v1"
     assert llm.options["extra_body"]["chat_template_kwargs"] == {"enable_thinking": False}
     assert llm.calls[0][1] == {"callbacks": ["callback"]}
 
