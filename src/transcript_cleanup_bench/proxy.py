@@ -105,6 +105,60 @@ def raw_transcript(body: Any) -> str | None:
     return content if isinstance(content, str) else None
 
 
+async def parse_handy_request(request: Request) -> tuple[dict[str, Any], str] | None:
+    try:
+        body = await request.json()
+    except Exception:
+        return None
+    transcript = raw_transcript(body)
+    if transcript is None:
+        return None
+    return body, transcript
+
+
+def prepare_completion(body: dict[str, Any], transcript: str) -> dict[str, Any]:
+    langfuse_prompt = resolve(
+        langfuse_client(),
+        name=prompt_name(),
+        label=prompt_label(),
+    )
+    prepared = {
+        **body,
+        "messages": langfuse_prompt.compile(transcript=transcript),
+    }
+    prepared.setdefault("temperature", 0)
+    options = completion_options(prepared)
+    options["langfuse_prompt"] = langfuse_prompt
+    return options
+
+
+async def create_completion(options: dict[str, Any]) -> tuple[Any, Any]:
+    upstream = client()
+    try:
+        completion = await upstream.chat.completions.create(**options)
+    except Exception:
+        await upstream.close()
+        raise
+    return upstream, completion
+
+
+async def stream_events(completion: Any, upstream: Any) -> AsyncIterator[str]:
+    try:
+        async for chunk in completion:
+            yield f"data: {chunk.model_dump_json(exclude_none=True)}\n\n"
+        yield "data: [DONE]\n\n"
+    finally:
+        await upstream.close()
+
+
+async def completion_response(completion: Any, upstream: Any) -> Response:
+    try:
+        content = completion.model_dump_json(exclude_none=True)
+        return Response(content=content, media_type="application/json")
+    finally:
+        await upstream.close()
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -127,21 +181,13 @@ async def models():
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
+    parsed = await parse_handy_request(request)
+    if parsed is None:
         return invalid_messages()
-    transcript = raw_transcript(body)
-    if transcript is None:
-        return invalid_messages()
+    body, transcript = parsed
 
     try:
-        langfuse_prompt = resolve(
-            langfuse_client(),
-            name=prompt_name(),
-            label=prompt_label(),
-        )
-        compiled_messages = langfuse_prompt.compile(transcript=transcript)
+        options = prepare_completion(body, transcript)
     except Exception as error:
         return openai_error(
             503,
@@ -150,30 +196,14 @@ async def chat_completions(request: Request):
             code="prompt_unavailable",
         )
 
-    body["messages"] = compiled_messages
-    body.setdefault("temperature", 0)
-    options = completion_options(body)
-    options["langfuse_prompt"] = langfuse_prompt
-    upstream = client()
     try:
-        completion = await upstream.chat.completions.create(**options)
+        upstream, completion = await create_completion(options)
     except Exception as error:
-        await upstream.close()
         return upstream_error(error)
 
     if options.get("stream") is True:
-        async def events() -> AsyncIterator[str]:
-            try:
-                async for chunk in completion:
-                    yield f"data: {chunk.model_dump_json(exclude_none=True)}\n\n"
-                yield "data: [DONE]\n\n"
-            finally:
-                await upstream.close()
-
-        return StreamingResponse(events(), media_type="text/event-stream")
-
-    try:
-        content = completion.model_dump_json(exclude_none=True)
-        return Response(content=content, media_type="application/json")
-    finally:
-        await upstream.close()
+        return StreamingResponse(
+            stream_events(completion, upstream),
+            media_type="text/event-stream",
+        )
+    return await completion_response(completion, upstream)
