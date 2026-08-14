@@ -151,6 +151,7 @@ async def chat_completions(request: Request):
         )
 
     body["messages"] = compiled_messages
+    body.setdefault("temperature", 0)
     options = completion_options(body)
     options["langfuse_prompt"] = langfuse_prompt
     upstream = client()

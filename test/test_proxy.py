@@ -231,6 +231,7 @@ async def test_streaming_serializes_native_openai_chunks_as_sse() -> None:
         f"data: {json.dumps(chunk, separators=(',', ':'))}\n\n"
         for chunk in FakeOpenAI.stream_chunks
     ) + "data: [DONE]\n\n"
+    assert FakeOpenAI.instances[0].calls[0]["temperature"] == 0
     assert FakeOpenAI.instances[0].closed is True
 
 

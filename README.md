@@ -53,6 +53,8 @@ non-streaming Chat Completions are supported and traced through Langfuse's OpenA
 Set Handy's custom prompt template to exactly `${output}` so its single user message contains only
 the raw transcript. The proxy rejects other message shapes and replaces that message with the
 compiled `LANGFUSE_PROMPT_NAME` / `LANGFUSE_PROMPT_LABEL` chat prompt.
+If Handy omits `temperature`, the proxy supplies `0`; an explicitly configured Handy temperature
+is preserved.
 
 `make sync` creates two prompt versions only when `transcript-cleanup` does not exist: v1 receives
 the `baseline` label and v2 receives `production`. After creation, Langfuse is authoritative and
