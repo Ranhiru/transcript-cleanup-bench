@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import pytest
 
 from transcript_cleanup_bench import dataset
-from transcript_cleanup_bench.schemas import EXPECTED_OUTPUT_SCHEMA, INPUT_SCHEMA, validate_item
 
 
 def test_snapshot_is_normalized_and_complete() -> None:
@@ -35,24 +34,6 @@ def test_stable_migration_id_and_expanded_aliases() -> None:
     ]
     assert repeated[0]["expectedOutput"]["assertions"][-1] == repeated[1]["expectedOutput"]["assertions"][-1]
     assert repeated[0]["expectedOutput"]["assertions"][-1] is not repeated[1]["expectedOutput"]["assertions"][-1]
-
-
-def test_schemas_require_transcript_and_assertions() -> None:
-    assert INPUT_SCHEMA["required"] == ["transcript"]
-    assert EXPECTED_OUTPUT_SCHEMA["properties"]["assertions"]["minItems"] == 1
-    with pytest.raises(ValueError, match="transcript"):
-        validate_item({"input": {}, "expectedOutput": {"assertions": [{}]}})
-    with pytest.raises(ValueError, match="non-empty"):
-        validate_item({"input": {"transcript": "x"}, "expectedOutput": {"assertions": []}})
-    with pytest.raises(ValueError, match="assertion value"):
-        validate_item(
-            {
-                "input": {"transcript": "x"},
-                "expectedOutput": {
-                    "assertions": [{"type": "not-icontains-any", "metric": "m", "value": "x"}]
-                },
-            }
-        )
 
 
 class NotFound(Exception):
@@ -89,7 +70,9 @@ def test_bootstrap_only_creates_an_absent_dataset() -> None:
     assert dataset.bootstrap(fresh) is True
     assert len(fresh.datasets) == 1
     assert len(fresh.items) == 45
-    assert fresh.datasets[0]["input_schema"] == INPUT_SCHEMA
+    assert fresh.datasets[0]["metadata"] == {
+        "seed": "datasets/evaluation-transcript-cleanup.jsonl"
+    }
 
 
 def test_fetch_version_pins_timestamp_and_preserves_archived_status() -> None:

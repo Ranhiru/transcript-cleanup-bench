@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -8,130 +9,170 @@ import pytest
 from transcript_cleanup_bench import proxy
 
 
-class FakeTrace:
-    instances = []
+class FakeModel:
+    def __init__(self, value):
+        self.value = value
 
-    def __init__(self, body):
-        self.body = body
-        self.finished = None
+    def model_dump_json(self, *, exclude_none):
+        assert exclude_none is True
+        return json.dumps(self.value, separators=(",", ":"))
+
+
+class FakeStream:
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    async def __aiter__(self):
+        for chunk in self.chunks:
+            yield FakeModel(chunk)
+
+
+class FakeCompletions:
+    def __init__(self, owner):
+        self.owner = owner
+
+    async def create(self, **options):
+        self.owner.calls.append(options)
+        if self.owner.error:
+            raise self.owner.error
+        if options.get("stream") is True:
+            return FakeStream(self.owner.stream_chunks)
+        return FakeModel(self.owner.response)
+
+
+class FakeOpenAI:
+    instances: list["FakeOpenAI"] = []
+    error: Exception | None = None
+    response = {
+        "id": "chatcmpl-upstream",
+        "object": "chat.completion",
+        "model": "m",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "cleaned"},
+                "finish_reason": "stop",
+                "logprobs": {"content": []},
+            }
+        ],
+        "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
+    }
+    stream_chunks = [
+        {
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"role": "assistant"}}],
+        },
+        {
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion.chunk",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call-1",
+                                "type": "function",
+                                "function": {"name": "lookup", "arguments": "{}"},
+                            }
+                        ]
+                    },
+                }
+            ],
+        },
+    ]
+
+    def __init__(self, **options):
+        self.options = options
+        self.calls = []
+        self.closed = False
+        self.chat = SimpleNamespace(completions=FakeCompletions(self))
         self.instances.append(self)
 
-    def finish(self, **values):
-        self.finished = values
+    async def close(self):
+        self.closed = True
 
 
 @pytest.fixture(autouse=True)
-def fake_tracing(monkeypatch):
-    FakeTrace.instances.clear()
-    monkeypatch.setattr(proxy, "TraceGeneration", FakeTrace)
+def fake_openai(monkeypatch):
+    FakeOpenAI.instances.clear()
+    FakeOpenAI.error = None
+    monkeypatch.setattr(proxy.openai, "AsyncOpenAI", FakeOpenAI)
     monkeypatch.setenv("OMLX_API_KEY", "server-secret")
 
 
-def app_client(handler) -> tuple[httpx.AsyncClient, httpx.AsyncClient]:
-    upstream = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    proxy.app.state.upstream = upstream
-    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=proxy.app), base_url="http://proxy")
-    return client, upstream
+def client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=proxy.app), base_url="http://proxy"
+    )
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_passthrough_and_credential_replacement() -> None:
-    seen = {}
-
-    def handler(request: httpx.Request):
-        seen["headers"] = request.headers
-        seen["json"] = json.loads(request.content)
-        return httpx.Response(
-            201,
-            headers={"x-upstream": "kept", "connection": "x-secret", "x-secret": "drop"},
+async def test_non_streaming_uses_native_openai_schema_and_option_routing() -> None:
+    async with client() as http:
+        response = await http.post(
+            "/v1/chat/completions",
+            headers={"authorization": "Bearer client-secret"},
             json={
-                "unknown": {"preserved": True},
-                "choices": [{"message": {"content": " cleaned "}, "finish_reason": "stop"}],
-                "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
+                "model": "m",
+                "messages": [{"role": "user", "content": "x"}],
+                "temperature": 0.2,
+                "response_format": {"type": "json_object"},
+                "top_k": 4,
+                "min_p": 0.1,
+                "repetition_penalty": 1.1,
+                "chat_template_kwargs": {"enable_thinking": False},
             },
         )
 
-    client, upstream = app_client(handler)
-    async with client:
-        response = await client.post(
+    assert response.status_code == 200
+    assert response.json() == FakeOpenAI.response
+    upstream = FakeOpenAI.instances[0]
+    assert upstream.options["api_key"] == "server-secret"
+    assert upstream.calls[0]["temperature"] == 0.2
+    assert upstream.calls[0]["response_format"] == {"type": "json_object"}
+    assert upstream.calls[0]["extra_body"] == {
+        "top_k": 4,
+        "min_p": 0.1,
+        "repetition_penalty": 1.1,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    assert upstream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_streaming_serializes_native_openai_chunks_as_sse() -> None:
+    async with client() as http:
+        response = await http.post(
             "/v1/chat/completions",
-            headers={"authorization": "Bearer client-secret", "connection": "x-hop", "x-hop": "drop"},
-            json={"model": "m", "messages": [{"role": "user", "content": "x"}], "unknown": 7},
+            json={"model": "m", "messages": [], "stream": True},
         )
-    await upstream.aclose()
-    assert response.status_code == 201
-    assert response.json()["unknown"] == {"preserved": True}
-    assert response.headers["x-upstream"] == "kept"
-    assert "x-secret" not in response.headers
-    assert seen["headers"]["authorization"] == "Bearer server-secret"
-    assert "x-hop" not in seen["headers"]
-    assert seen["json"]["unknown"] == 7
-    assert FakeTrace.instances[0].finished["usage"]["total_tokens"] == 3
+
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.text == "".join(
+        f"data: {json.dumps(chunk, separators=(',', ':'))}\n\n"
+        for chunk in FakeOpenAI.stream_chunks
+    ) + "data: [DONE]\n\n"
+    assert FakeOpenAI.instances[0].closed is True
 
 
 @pytest.mark.asyncio
-async def test_streaming_bytes_are_unchanged_and_traced() -> None:
-    body = (
-        b'data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}\n\n'
-        b'data: {"choices":[{"delta":{"content":"!"},"finish_reason":"stop"}],'
-        b'"usage":{"total_tokens":4}}\n\ndata: [DONE]\n\n'
-    )
+async def test_models_lists_configured_omlx_models() -> None:
+    async with client() as http:
+        response = await http.get("/v1/models")
+    assert response.status_code == 200
+    assert response.json()["data"][0]["id"] == "gemma-4-e4b-it-4bit"
 
-    class BodyStream(httpx.AsyncByteStream):
-        async def __aiter__(self):
-            yield body[:23]
-            yield body[23:]
 
-    def handler(_request):
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=BodyStream())
-
-    client, upstream = app_client(handler)
-    async with client:
-        response = await client.post(
-            "/v1/chat/completions",
-            json={"model": "m", "messages": [], "stream": True, "top_k": 0},
+@pytest.mark.asyncio
+async def test_upstream_failure_returns_openai_502_and_closes_client() -> None:
+    FakeOpenAI.error = RuntimeError("offline")
+    async with client() as http:
+        response = await http.post(
+            "/v1/chat/completions", json={"model": "m", "messages": []}
         )
-    await upstream.aclose()
-    assert response.content == body
-    assert FakeTrace.instances[0].finished["output"] == "Hi!"
-    assert FakeTrace.instances[0].finished["finish_reason"] == "stop"
-    assert FakeTrace.instances[0].finished["first_token_at"] is not None
-
-
-@pytest.mark.asyncio
-async def test_status_and_model_body_are_preserved() -> None:
-    def handler(_request):
-        return httpx.Response(418, content=b'{"custom":"teapot"}', headers={"content-type": "application/json"})
-
-    client, upstream = app_client(handler)
-    async with client:
-        response = await client.get("/v1/models")
-    await upstream.aclose()
-    assert response.status_code == 418
-    assert response.content == b'{"custom":"teapot"}'
-
-
-@pytest.mark.asyncio
-async def test_connection_failure_returns_openai_502_without_retry() -> None:
-    calls = 0
-
-    def handler(request):
-        nonlocal calls
-        calls += 1
-        raise httpx.ConnectError("offline", request=request)
-
-    client, upstream = app_client(handler)
-    async with client:
-        response = await client.post("/v1/chat/completions", json={"model": "m", "messages": []})
-    await upstream.aclose()
-    assert calls == 1
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "upstream_unavailable"
-
-
-def test_redaction_is_recursive() -> None:
-    assert proxy.redact({"api_key": "x", "nested": [{"access_token": "y"}], "safe": 1}) == {
-        "api_key": "[REDACTED]",
-        "nested": [{"access_token": "[REDACTED]"}],
-        "safe": 1,
-    }
+    assert FakeOpenAI.instances[0].closed is True

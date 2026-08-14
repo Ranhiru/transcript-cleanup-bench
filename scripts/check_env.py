@@ -5,6 +5,8 @@ import os
 import re
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 REQUIRED = {
     "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_SECRET_KEY",
@@ -25,22 +27,11 @@ REQUIRED = {
 }
 
 
-def parse_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key] = value.strip().strip("'\"")
-    return values
-
-
 def main() -> None:
     path = Path(".env")
     if not path.exists():
         raise SystemExit("missing .env; copy .env.example and replace every change-me value")
-    values = {**parse_env(path), **os.environ}
+    values = {**dotenv_values(path), **os.environ}
     missing = sorted(key for key in REQUIRED if not values.get(key))
     placeholders = sorted(key for key in REQUIRED if "change-me" in values.get(key, ""))
     if missing or placeholders:

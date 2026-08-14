@@ -9,19 +9,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable
 
+from dotenv import load_dotenv
 from langfuse import Langfuse
 from langfuse.api import DatasetStatus
 
 from . import DATASET_NAME
-from .env import load_env
-from .schemas import EXPECTED_OUTPUT_SCHEMA, INPUT_SCHEMA, validate_item
 
 REPO = Path(__file__).resolve().parents[2]
 SNAPSHOT = REPO / "datasets" / "evaluation-transcript-cleanup.jsonl"
 
 
 def client() -> Langfuse:
-    load_env(REPO / ".env")
+    load_dotenv(REPO / ".env")
     return Langfuse(
         public_key=os.environ.get("LANGFUSE_PUBLIC_KEY"),
         secret_key=os.environ.get("LANGFUSE_SECRET_KEY"),
@@ -32,8 +31,6 @@ def client() -> Langfuse:
 
 def load_snapshot(path: Path = SNAPSHOT) -> list[dict[str, Any]]:
     items = [json.loads(line) for line in path.read_text().splitlines() if line]
-    for item in items:
-        validate_item(item)
     if len({item["id"] for item in items}) != len(items):
         raise ValueError("snapshot contains duplicate item IDs")
     return items
@@ -48,7 +45,6 @@ def normalize_item(item: Any) -> dict[str, Any]:
         "metadata": item.metadata,
         "status": status,
     }
-    validate_item(normalized)
     return normalized
 
 
@@ -90,9 +86,7 @@ def bootstrap(langfuse: Langfuse) -> bool:
     langfuse.create_dataset(
         name=DATASET_NAME,
         description="Authoritative transcript-cleanup evaluation cases",
-        metadata={"schema_version": 1, "managed_by": "Langfuse UI"},
-        input_schema=INPUT_SCHEMA,
-        expected_output_schema=EXPECTED_OUTPUT_SCHEMA,
+        metadata={"seed": str(SNAPSHOT.relative_to(REPO))},
     )
     for item in items:
         langfuse.create_dataset_item(

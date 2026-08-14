@@ -6,7 +6,10 @@ requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.116",
   "httpx>=0.28",
+  "langchain>=1.0",
+  "langchain-openai>=1.0",
   "langfuse==4.14.1",
+  "python-dotenv>=1.1",
   "pyyaml>=6.0",
   "uvicorn>=0.35",
 ]
@@ -23,4 +26,3 @@ testpaths = ["test"]
 
 [tool.ruff]
 line-length = 100
-

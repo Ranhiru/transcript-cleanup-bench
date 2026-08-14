@@ -6,9 +6,6 @@ x-langfuse-environment: &langfuse-environment
   SALT: ${SALT}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY}
   TELEMETRY_ENABLED: "false"
-  LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
-  LANGFUSE_CODE_EVAL_DISPATCHER: insecure-local
-  LANGFUSE_CODE_EVAL_LOCAL_TIMEOUT_MS: "2000"
   CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
   CLICKHOUSE_URL: http://clickhouse:8123
   CLICKHOUSE_USER: clickhouse
@@ -28,6 +25,7 @@ x-langfuse-environment: &langfuse-environment
   LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
   LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
   LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+  LANGFUSE_BLOB_STORAGE_ENDPOINT_WHITELISTED_HOST: minio
   REDIS_HOST: redis
   REDIS_PORT: "6379"
   REDIS_AUTH: ${REDIS_AUTH}
@@ -48,7 +46,6 @@ services:
         condition: service_healthy
     environment:
       <<: *langfuse-environment
-      QUEUE_CONSUMER_CODE_EVAL_EXECUTION_QUEUE_IS_ENABLED: "true"
 
   langfuse-web:
     image: docker.io/langfuse/langfuse:4.0.0

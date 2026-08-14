@@ -1,9 +1,6 @@
 dataset: evaluation/transcript-cleanup
 omlx_url: http://localhost:8000/v1
 concurrency: 8
-publish_concurrency: 1
-score_timeout_seconds: 300
-generation_name: transcript-cleanup-generation
 
 prompts:
   - id: v1
@@ -32,4 +29,3 @@ sampler:
   presence_penalty: 0
   frequency_penalty: 0
   repetition_penalty: 1.0
-

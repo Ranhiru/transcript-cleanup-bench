@@ -1,17 +1,20 @@
 # Transcript Cleanup Bench
 
-Benchmarks local LLM transcript cleanup against an authoritative Langfuse dataset. It also
-provides an OpenAI-compatible tracing proxy for [Handy](https://handy.computer/).
+Benchmarks local LLM transcript cleanup with Langfuse experiments. It also provides an
+OpenAI-compatible tracing proxy for [Handy](https://handy.computer/).
 
 ```text
 Handy → proxy localhost:4000 → oMLX localhost:8000
              └── traces → Langfuse localhost:4001
 
-Langfuse dataset → benchmark runner → oMLX
-                 └── experiments and scores → Langfuse
+Langfuse dataset → Langfuse experiment runner → oMLX
+                 └── traces, scores, and comparisons → Langfuse
 ```
 
-### Hardware and server
+Langfuse is the sole benchmark results store. The tracked JSONL dataset is a reproducible seed
+for initializing a fresh local project, not a second results or schema system.
+
+## Hardware and server
 
 | | |
 |:---|:---|
@@ -23,45 +26,13 @@ Langfuse dataset → benchmark runner → oMLX
 | engine | mlx 0.32.0, mlx-lm 0.31.3 |
 | Langfuse | 4.0.0 |
 
-Sampler settings and model IDs are pinned in `benchmark.yaml`. The benchmark runner calls
-oMLX directly; Handy uses the proxy so live traffic is traced without duplicating experiment
-traces.
-
-## Models used and defaults
-
-The suite covers three Gemma variants and Qwen3.6 MoE. Qwen uses the `qwen3.5/6(r, general)`
-preset with thinking disabled, while Gemma models use the `gemma4` preset.
-
-## Results
-
-<!-- BENCHMARK:START -->
-
-### Leaderboard
-
-Ranked by tests passed. Best result first.
-
-| # | model | prompt | passed | score |
-|---:|:---|:---|---:|:---|
-| 1 | Qwen 3.6 35B-A3B | v2 | 39/39 | `█████████` 100.0% |
-| 2 | Gemma 4 12B QAT | v2 | 38/39 | `█████████` 97.4% |
-| 3 | Gemma 4 E2B | v2 | 36/39 | `████████░` 92.3% |
-| 4 | Gemma 4 E4B | v2 | 35/39 | `████████░` 89.7% |
-| 5 | Gemma 4 12B QAT | v1 | 34/39 | `████████░` 87.2% |
-| 6 | Gemma 4 E4B | v1 | 34/39 | `████████░` 87.2% |
-| 7 | Qwen 3.6 35B-A3B | v1 | 34/39 | `████████░` 87.2% |
-| 8 | Gemma 4 E2B | v1 | 31/39 | `███████░░` 79.5% |
-
-Legacy Promptfoo baseline; it remains for comparison until the first complete Langfuse benchmark is published.
-
-<!-- BENCHMARK:END -->
-
-`make bench` publishes a complete serial 360-execution run. `make report` only rebuilds this
-section from `results/summary.json`.
+Sampler settings, prompt files, and model IDs are pinned in `benchmark.yaml`. Qwen uses thinking
+disabled; Gemma models use their oMLX defaults.
 
 ## Setup
 
-Install Docker, `uv`, GNU Make, and an OpenAI-compatible oMLX server exposing the model IDs
-in `benchmark.yaml`.
+Install Docker, `uv`, GNU Make, and an OpenAI-compatible oMLX server exposing the configured
+model IDs.
 
 ```fish
 cp .env.example .env
@@ -72,21 +43,49 @@ make sync
 ```
 
 Configure Handy's custom OpenAI provider with base URL `http://localhost:4000/v1`. The proxy
-injects `OMLX_API_KEY`; Handy does not need the oMLX credential.
+injects `OMLX_API_KEY`, so Handy does not need the oMLX credential. Both streaming and
+non-streaming Chat Completions are supported and traced through Langfuse's OpenAI integration.
 
-## Run
+## Run experiments
 
 ```fish
-make eval                                      # full diagnostic run, concurrency 8
+make eval
 make eval ARGS="--case happy-1 --model 'Gemma 4 E4B' --prompt v2"
-make bench                                     # complete serial publishable benchmark
-make dataset-export                            # refresh the tracked backup from Langfuse
-make dataset-check                             # fail if Langfuse and the backup differ
-make report                                    # rebuild README without services
+make eval ARGS="--concurrency 2"
 make status
 make view
 make down
 ```
 
-Langfuse at `http://localhost:4001` is the dataset editing source of truth. The tracked
-`datasets/evaluation-transcript-cleanup.jsonl` file is generated; do not edit it manually.
+Each model-and-prompt pair is a Langfuse dataset experiment. `make eval` prints its aggregate
+summary and Langfuse URL. Case, model, prompt, and concurrency filters only change that run; all
+traces, dataset-run links, failures, scores, and comparisons remain in Langfuse.
+
+The dataset seed can be refreshed deliberately with `make dataset-export`, and
+`make dataset-check` compares it with the current Langfuse dataset.
+
+## Scheduled MinIO export
+
+The Compose stack already creates the `langfuse` bucket and permits the internal `minio`
+hostname in both Langfuse containers. Scheduled export settings are project integrations, so set
+this up once in **Project Settings → Integrations → Blob Storage** (or through Langfuse's public
+blob-storage integration REST API):
+
+- Provider: S3-compatible
+- Endpoint: `http://minio:9000`
+- Region: `auto`
+- Access key: `minio`
+- Secret key: the `MINIO_ROOT_PASSWORD` value from `.env`
+- Bucket: `langfuse`
+- Prefix: `exports/`
+- Export source: enriched observations and scores
+- Format: JSONL with gzip compression
+- History: full history
+- Schedule: daily
+
+Use the integration's **Validate** action before saving. Scheduled integrations are intentionally
+not configured through Compose environment variables; `LANGFUSE_S3_BATCH_EXPORT_*` variables are
+for the separate on-demand batch-export feature. See Langfuse's
+[scheduled blob export](https://langfuse.com/docs/api-and-data-platform/features/export-to-blob-storage)
+and [self-hosted MinIO configuration](https://langfuse.com/self-hosting/deployment/infrastructure/blobstorage)
+documentation.
