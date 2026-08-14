@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -16,14 +15,6 @@ load_dotenv(REPO / ".env")
 app = FastAPI(title="OpenAI-compatible tracing proxy")
 
 EXTRA_BODY_OPTIONS = {"top_k", "min_p", "repetition_penalty", "chat_template_kwargs"}
-
-
-def configured_models() -> list[dict[str, Any]]:
-    config = yaml.safe_load((REPO / "benchmark.yaml").read_text())
-    return [
-        {"id": model["id"], "object": "model", "created": 0, "owned_by": "configured"}
-        for model in config["models"]
-    ]
 
 
 def api_host() -> str:
@@ -69,8 +60,18 @@ async def healthz() -> dict[str, str]:
 
 
 @app.get("/v1/models")
-async def models() -> dict[str, Any]:
-    return {"object": "list", "data": configured_models()}
+async def models():
+    upstream = client()
+    try:
+        response = await upstream.models.list()
+        return Response(
+            content=response.model_dump_json(exclude_none=True),
+            media_type="application/json",
+        )
+    except Exception as error:
+        return error_response(error)
+    finally:
+        await upstream.close()
 
 
 @app.post("/v1/chat/completions")

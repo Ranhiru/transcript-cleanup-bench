@@ -40,6 +40,16 @@ class FakeCompletions:
         return FakeModel(self.owner.response)
 
 
+class FakeModels:
+    def __init__(self, owner):
+        self.owner = owner
+
+    async def list(self):
+        if self.owner.error:
+            raise self.owner.error
+        return FakeModel(self.owner.models_response)
+
+
 class FakeOpenAI:
     instances: list["FakeOpenAI"] = []
     error: Exception | None = None
@@ -83,12 +93,19 @@ class FakeOpenAI:
             ],
         },
     ]
+    models_response = {
+        "object": "list",
+        "data": [
+            {"id": "provider-model", "object": "model", "created": 0, "owned_by": "provider"}
+        ],
+    }
 
     def __init__(self, **options):
         self.options = options
         self.calls = []
         self.closed = False
         self.chat = SimpleNamespace(completions=FakeCompletions(self))
+        self.models = FakeModels(self)
         self.instances.append(self)
 
     async def close(self):
@@ -162,11 +179,22 @@ async def test_streaming_serializes_native_openai_chunks_as_sse() -> None:
 
 
 @pytest.mark.asyncio
-async def test_models_lists_configured_models() -> None:
+async def test_models_lists_upstream_models_and_closes_client() -> None:
     async with client() as http:
         response = await http.get("/v1/models")
     assert response.status_code == 200
-    assert response.json()["data"][0]["id"] == "gemma-4-e4b-it-4bit"
+    assert response.json() == FakeOpenAI.models_response
+    assert FakeOpenAI.instances[0].closed is True
+
+
+@pytest.mark.asyncio
+async def test_models_upstream_failure_returns_openai_502() -> None:
+    FakeOpenAI.error = RuntimeError("offline")
+    async with client() as http:
+        response = await http.get("/v1/models")
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "upstream_unavailable"
+    assert FakeOpenAI.instances[0].closed is True
 
 
 @pytest.mark.asyncio
