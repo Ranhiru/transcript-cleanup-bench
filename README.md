@@ -83,3 +83,7 @@ make eval    # run every test against the prompts
 make view    # open the results grid in a browser
 make         # list the available targets
 ```
+
+## License
+
+[MIT](LICENSE)
