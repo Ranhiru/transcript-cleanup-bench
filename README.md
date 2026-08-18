@@ -133,3 +133,7 @@ for the separate on-demand batch-export feature. See Langfuse's
 [scheduled blob export](https://langfuse.com/docs/api-and-data-platform/features/export-to-blob-storage)
 and [self-hosted MinIO configuration](https://langfuse.com/self-hosting/deployment/infrastructure/blobstorage)
 documentation.
+
+## License
+
+[MIT](LICENSE)
