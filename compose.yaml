@@ -1,5 +1,7 @@
-# Adapted from Langfuse v4.0.0's official docker-compose.yml.
-# Upstream snapshot: https://github.com/langfuse/langfuse/blob/v4.0.0/docker-compose.yml
+# Adapted from Langfuse v4.12.0's official docker-compose.yml.
+# Upstream snapshot: https://github.com/langfuse/langfuse/blob/v4.12.0/docker-compose.yml
+# Upstream floats the app images on the `4` tag; we pin 4.11.0, the newest published
+# release that tag resolves to (no 4.12.0 image is published).
 x-langfuse-environment: &langfuse-environment
   NEXTAUTH_URL: http://localhost:4001
   DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
@@ -22,7 +24,7 @@ x-langfuse-environment: &langfuse-environment
   LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
   LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
   LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
   LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
   LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
   LANGFUSE_BLOB_STORAGE_ENDPOINT_WHITELISTED_HOST: minio
@@ -33,7 +35,7 @@ x-langfuse-environment: &langfuse-environment
 
 services:
   langfuse-worker:
-    image: docker.io/langfuse/langfuse-worker:4.0.0
+    image: docker.io/langfuse/langfuse-worker:4.11.0
     restart: unless-stopped
     depends_on: &langfuse-dependencies
       postgres:
@@ -48,13 +50,14 @@ services:
       <<: *langfuse-environment
 
   langfuse-web:
-    image: docker.io/langfuse/langfuse:4.0.0
+    image: docker.io/langfuse/langfuse:4.11.0
     restart: unless-stopped
     depends_on: *langfuse-dependencies
     ports:
       - 127.0.0.1:4001:3000
     environment:
       <<: *langfuse-environment
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID}
       LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME}
@@ -115,6 +118,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 1s
 
   minio:
     image: cgr.dev/chainguard/minio
@@ -134,6 +138,7 @@ services:
       interval: 2s
       timeout: 5s
       retries: 10
+      start_period: 1s
 
   redis:
     image: docker.io/redis:7
