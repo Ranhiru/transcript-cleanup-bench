@@ -38,13 +38,13 @@ model IDs.
 ```fish
 cp .env.example .env
 # Replace every change-me value in .env.
-make setup
-make up
-make sync
+make init
 ```
 
-Configure `.env` from the tracked example before starting the stack. Keep credentials local;
-`.env` is ignored by Git.
+`make init` refuses to start until `.env` exists and has no `change-me` values left, then runs
+`setup`, `up`, and `sync` in order. Those stay available individually: `setup` when the lockfile
+changes, `up` after a `down` or a reboot, `sync` against a fresh Langfuse volume. All three are
+idempotent, so `make init` is safe to re-run. Keep credentials local; `.env` is ignored by Git.
 
 Configure Handy's custom OpenAI provider with base URL `http://localhost:4000/v1`. The proxy
 injects `OPENAI_API_KEY`, so Handy does not need the upstream credential. Set `OPENAI_API_HOST`
