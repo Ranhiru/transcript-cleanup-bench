@@ -6,8 +6,9 @@ import json
 import os
 import tempfile
 from datetime import UTC, datetime
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from langfuse import Langfuse
 from langfuse.api import DatasetStatus, NotFoundError

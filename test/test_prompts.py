@@ -11,12 +11,13 @@ class FakeLangfuse:
     def __init__(self, existing=None):
         self.existing = existing or []
         self.created = []
+        self.listed = []
         self.api = SimpleNamespace(
             prompts=SimpleNamespace(list=self.list_prompts),
         )
 
     def list_prompts(self, *, name, limit):
-        assert limit == 100
+        self.listed.append({"name": name, "limit": limit})
         return SimpleNamespace(data=self.existing)
 
     def create_prompt(self, **values):
@@ -48,6 +49,7 @@ def test_bootstrap_creates_v1_then_v2_as_chat_messages() -> None:
     )
     assert "{{transcript}}" not in langfuse.created[0]["prompt"][0]["content"]
     assert "{{transcript}}" not in langfuse.created[1]["prompt"][0]["content"]
+    assert langfuse.listed == [{"name": "transcript-cleanup", "limit": 100}]
 
 
 def test_bootstrap_preserves_an_existing_valid_prompt() -> None:
@@ -55,6 +57,13 @@ def test_bootstrap_preserves_an_existing_valid_prompt() -> None:
 
     assert prompts.bootstrap(langfuse, "transcript-cleanup") is False
     assert langfuse.created == []
+
+
+def test_resolve_rejects_a_prompt_langfuse_returns_as_text() -> None:
+    langfuse = SimpleNamespace(get_prompt=lambda *args, **values: object())
+
+    with pytest.raises(TypeError, match="must be a chat prompt"):
+        prompts.resolve(langfuse, name="transcript-cleanup", label="production")
 
 
 @pytest.mark.parametrize(

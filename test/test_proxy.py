@@ -1,153 +1,139 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import httpx
 import pytest
+from langfuse.api import Prompt_Chat
+from langfuse.model import ChatPromptClient
 
 from transcript_cleanup_bench import proxy
 
+COMPLETION = {
+    "id": "chatcmpl-upstream",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "m",
+    "choices": [
+        {
+            "index": 0,
+            "message": {"role": "assistant", "content": "cleaned"},
+            "finish_reason": "stop",
+        }
+    ],
+    "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
+}
 
-class FakeModel:
-    def __init__(self, value):
-        self.value = value
+MODELS = {
+    "object": "list",
+    "data": [{"id": "provider-model", "object": "model", "created": 0, "owned_by": "provider"}],
+}
 
-    def model_dump_json(self, *, exclude_none):
-        assert exclude_none is True
-        return json.dumps(self.value, separators=(",", ":"))
-
-
-class FakeStream:
-    def __init__(self, chunks):
-        self.chunks = chunks
-
-    async def __aiter__(self):
-        for chunk in self.chunks:
-            yield FakeModel(chunk)
-
-
-class FakeCompletions:
-    def __init__(self, owner):
-        self.owner = owner
-
-    async def create(self, **options):
-        self.owner.calls.append(options)
-        if self.owner.error:
-            raise self.owner.error
-        if options.get("stream") is True:
-            return FakeStream(self.owner.stream_chunks)
-        return FakeModel(self.owner.response)
-
-
-class FakeModels:
-    def __init__(self, owner):
-        self.owner = owner
-
-    async def list(self):
-        if self.owner.error:
-            raise self.owner.error
-        return FakeModel(self.owner.models_response)
-
-
-class FakeOpenAI:
-    instances: list["FakeOpenAI"] = []
-    error: Exception | None = None
-    response = {
+CHUNKS = [
+    {
         "id": "chatcmpl-upstream",
-        "object": "chat.completion",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "m",
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": "cleaned"}}],
+    },
+    {
+        "id": "chatcmpl-upstream",
+        "object": "chat.completion.chunk",
+        "created": 0,
         "model": "m",
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": "cleaned"},
-                "finish_reason": "stop",
-                "logprobs": {"content": []},
+                "delta": {
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": "call-1",
+                            "type": "function",
+                            "function": {"name": "lookup", "arguments": "{}"},
+                        }
+                    ]
+                },
             }
         ],
-        "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
-    }
-    stream_chunks = [
-        {
-            "id": "chatcmpl-upstream",
-            "object": "chat.completion.chunk",
-            "choices": [{"index": 0, "delta": {"role": "assistant"}}],
-        },
-        {
-            "id": "chatcmpl-upstream",
-            "object": "chat.completion.chunk",
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {
-                        "tool_calls": [
-                            {
-                                "index": 0,
-                                "id": "call-1",
-                                "type": "function",
-                                "function": {"name": "lookup", "arguments": "{}"},
-                            }
-                        ]
-                    },
-                }
+    },
+]
+
+
+def chat_prompt() -> ChatPromptClient:
+    """A real prompt client, so compile() and Langfuse linking run the real code."""
+    return ChatPromptClient(
+        Prompt_Chat(
+            name="transcript-cleanup",
+            version=7,
+            type="chat",
+            labels=["production"],
+            tags=[],
+            config={},
+            prompt=[
+                {"role": "system", "content": "Clean the transcript."},
+                {"role": "user", "content": "{{transcript}}"},
             ],
-        },
-    ]
-    models_response = {
-        "object": "list",
-        "data": [
-            {"id": "provider-model", "object": "model", "created": 0, "owned_by": "provider"}
-        ],
-    }
-
-    def __init__(self, **options):
-        self.options = options
-        self.calls = []
-        self.closed = False
-        self.chat = SimpleNamespace(completions=FakeCompletions(self))
-        self.models = FakeModels(self)
-        self.instances.append(self)
-
-    async def close(self):
-        self.closed = True
+        )
+    )
 
 
-class FakePrompt:
-    name = "transcript-cleanup"
-    version = 7
+class Upstream:
+    """The OpenAI-compatible server, faked at the HTTP layer so the real SDK runs."""
 
-    def __init__(self):
-        self.compiled = []
+    def __init__(self) -> None:
+        self.requests: list[dict | None] = []
+        self.clients = 0
+        self.offline = False
 
-    def compile(self, **values):
-        self.compiled.append(values)
-        return [
-            {"role": "system", "content": "Clean the transcript."},
-            {"role": "user", "content": values["transcript"]},
-        ]
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        if self.offline:
+            raise httpx.ConnectError("offline", request=request)
+        body = json.loads(request.content) if request.content else None
+        self.requests.append(body)
+        if not request.url.path.endswith("/chat/completions"):
+            return httpx.Response(200, json=MODELS)
+        if (body or {}).get("stream"):
+            events = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in CHUNKS)
+            return httpx.Response(
+                200,
+                text=events + "data: [DONE]\n\n",
+                headers={"content-type": "text/event-stream"},
+            )
+        return httpx.Response(200, json=COMPLETION)
+
+    @property
+    def sent(self) -> dict:
+        return self.requests[0] or {}
 
 
 @pytest.fixture(autouse=True)
-def fake_openai(monkeypatch):
-    FakeOpenAI.instances.clear()
-    FakeOpenAI.error = None
+def upstream(monkeypatch):
+    server = Upstream()
+    build_real = proxy.openai.AsyncOpenAI
+
+    def build(**options):
+        server.clients += 1
+        return build_real(
+            **options,
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(server.handler)),
+        )
+
     monkeypatch.setattr(proxy, "_upstream", None)
-    monkeypatch.setattr(proxy.openai, "AsyncOpenAI", FakeOpenAI)
+    monkeypatch.setattr(proxy.openai, "AsyncOpenAI", build)
     monkeypatch.setenv("OPENAI_API_HOST", "https://provider.example/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "server-secret")
     monkeypatch.setenv("LANGFUSE_PROMPT_NAME", "transcript-cleanup")
     monkeypatch.setenv("LANGFUSE_PROMPT_LABEL", "production")
-    prompt = FakePrompt()
     monkeypatch.setattr(proxy, "langfuse_client", lambda: "langfuse")
 
     def resolve_prompt(langfuse, *, name, label):
-        assert langfuse == "langfuse"
-        assert name == "transcript-cleanup"
-        assert label == "production"
-        return prompt
+        assert (langfuse, name, label) == ("langfuse", "transcript-cleanup", "production")
+        return chat_prompt()
 
     monkeypatch.setattr(proxy, "resolve", resolve_prompt)
-    return prompt
+    return server
 
 
 def client() -> httpx.AsyncClient:
@@ -156,82 +142,90 @@ def client() -> httpx.AsyncClient:
     )
 
 
-async def test_non_streaming_compiles_prompt_links_version_and_preserves_options(
-    fake_openai,
-) -> None:
+async def post(**body) -> httpx.Response:
     async with client() as http:
-        response = await http.post(
-            "/v1/chat/completions",
-            headers={"authorization": "Bearer client-secret"},
-            json={
-                "model": "m",
-                "messages": [{"role": "user", "content": "x"}],
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
-                "top_k": 4,
-                "min_p": 0.1,
-                "repetition_penalty": 1.1,
-                "chat_template_kwargs": {"enable_thinking": False},
-            },
-        )
+        return await http.post("/v1/chat/completions", json=body)
+
+
+async def test_compiles_the_prompt_and_forwards_sampler_extensions(upstream) -> None:
+    response = await post(
+        model="m",
+        messages=[{"role": "user", "content": "raw words"}],
+        temperature=0.2,
+        response_format={"type": "json_object"},
+        top_k=4,
+        min_p=0.1,
+        repetition_penalty=1.1,
+        chat_template_kwargs={"enable_thinking": False},
+    )
 
     assert response.status_code == 200
-    assert response.json() == FakeOpenAI.response
-    upstream = FakeOpenAI.instances[0]
-    assert upstream.options["api_key"] == "server-secret"
-    assert upstream.options["base_url"] == "https://provider.example/v1"
-    assert upstream.calls[0]["temperature"] == 0.2
-    assert upstream.calls[0]["response_format"] == {"type": "json_object"}
-    assert upstream.calls[0]["messages"] == [
+    assert response.json()["choices"][0]["message"]["content"] == "cleaned"
+    assert upstream.sent["messages"] == [
         {"role": "system", "content": "Clean the transcript."},
-        {"role": "user", "content": "x"},
+        {"role": "user", "content": "raw words"},
     ]
-    assert upstream.calls[0]["langfuse_prompt"] is fake_openai
-    assert upstream.calls[0]["extra_body"] == {
-        "top_k": 4,
-        "min_p": 0.1,
-        "repetition_penalty": 1.1,
-        "chat_template_kwargs": {"enable_thinking": False},
+    assert upstream.sent["temperature"] == 0.2
+    assert upstream.sent["response_format"] == {"type": "json_object"}
+    # Extensions must reach the wire even though the OpenAI schema has no such fields.
+    assert upstream.sent["top_k"] == 4
+    assert upstream.sent["min_p"] == 0.1
+    assert upstream.sent["repetition_penalty"] == 1.1
+    assert upstream.sent["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+async def test_missing_temperature_defaults_to_zero(upstream) -> None:
+    await post(model="m", messages=[{"role": "user", "content": "x"}])
+    assert upstream.sent["temperature"] == 0
+
+
+async def test_prepare_completion_links_the_resolved_prompt_version() -> None:
+    options = proxy.prepare_completion(
+        {"model": "m", "messages": [{"role": "user", "content": "x"}]}, "x"
+    )
+    linked = options["langfuse_prompt"]
+    assert (linked.name, linked.version) == ("transcript-cleanup", 7)
+
+
+async def test_streaming_relays_chunks_as_sse_preserving_tool_calls(upstream) -> None:
+    response = await post(
+        model="m", messages=[{"role": "user", "content": "x"}], stream=True
+    )
+
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert upstream.sent["stream"] is True
+    payloads = [
+        json.loads(line.removeprefix("data: "))
+        for line in response.text.strip().split("\n\n")
+        if line and not line.endswith("[DONE]")
+    ]
+    assert response.text.endswith("data: [DONE]\n\n")
+    assert payloads[0]["choices"][0]["delta"]["content"] == "cleaned"
+    # Unset fields are omitted rather than serialized as nulls, matching native framing.
+    assert "finish_reason" not in payloads[0]["choices"][0]
+    assert payloads[1]["choices"][0]["delta"]["tool_calls"][0]["function"] == {
+        "name": "lookup",
+        "arguments": "{}",
     }
 
 
-async def test_streaming_serializes_native_openai_chunks_as_sse() -> None:
-    async with client() as http:
-        response = await http.post(
-            "/v1/chat/completions",
-            json={"model": "m", "messages": [{"role": "user", "content": "x"}], "stream": True},
-        )
-
-    assert response.headers["content-type"].startswith("text/event-stream")
-    assert response.text == "".join(
-        f"data: {json.dumps(chunk, separators=(',', ':'))}\n\n"
-        for chunk in FakeOpenAI.stream_chunks
-    ) + "data: [DONE]\n\n"
-    assert FakeOpenAI.instances[0].calls[0]["temperature"] == 0
-
-
-async def test_models_lists_upstream_models() -> None:
+async def test_models_passes_through_the_upstream_listing() -> None:
     async with client() as http:
         response = await http.get("/v1/models")
     assert response.status_code == 200
-    assert response.json() == FakeOpenAI.models_response
+    assert response.json()["data"][0]["id"] == "provider-model"
 
 
-async def test_models_upstream_failure_returns_openai_502() -> None:
-    FakeOpenAI.error = RuntimeError("offline")
+@pytest.mark.parametrize("path", ["/v1/models", "/v1/chat/completions"])
+async def test_unreachable_upstream_returns_openai_502(upstream, path) -> None:
+    upstream.offline = True
     async with client() as http:
-        response = await http.get("/v1/models")
-    assert response.status_code == 502
-    assert response.json()["error"]["code"] == "upstream_unavailable"
-
-
-async def test_upstream_failure_returns_openai_502() -> None:
-    FakeOpenAI.error = RuntimeError("offline")
-    async with client() as http:
-        response = await http.post(
-            "/v1/chat/completions",
-            json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+        response = (
+            await http.get(path)
+            if path.endswith("models")
+            else await http.post(path, json={"model": "m", "messages": [{"role": "user", "content": "x"}]})
         )
+
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "upstream_unavailable"
 
@@ -245,11 +239,10 @@ async def test_upstream_failure_returns_openai_502() -> None:
         [{"role": "user", "content": "x"}, {"role": "user", "content": "y"}],
     ],
 )
-async def test_invalid_handy_messages_return_openai_400(messages) -> None:
-    async with client() as http:
-        response = await http.post(
-            "/v1/chat/completions", json={"model": "m", "messages": messages}
-        )
+async def test_message_shapes_the_prompt_cannot_wrap_return_openai_400(
+    upstream, messages
+) -> None:
+    response = await post(model="m", messages=messages)
 
     assert response.status_code == 400
     assert response.json()["error"] == {
@@ -258,34 +251,26 @@ async def test_invalid_handy_messages_return_openai_400(messages) -> None:
         "param": "messages",
         "code": "invalid_messages",
     }
-    assert not FakeOpenAI.instances
+    assert upstream.requests == []
 
 
-async def test_prompt_failure_returns_openai_503(monkeypatch) -> None:
-    def fail(*args, **kwargs):
+async def test_unavailable_prompt_returns_openai_503(upstream, monkeypatch) -> None:
+    def fail(*args, **values):
         raise RuntimeError("offline")
 
     monkeypatch.setattr(proxy, "resolve", fail)
-    async with client() as http:
-        response = await http.post(
-            "/v1/chat/completions",
-            json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
-        )
+    response = await post(model="m", messages=[{"role": "user", "content": "x"}])
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "prompt_unavailable"
-    assert not FakeOpenAI.instances
+    assert upstream.requests == []
 
 
-async def test_upstream_client_is_pooled_across_requests_and_closed_on_shutdown() -> None:
-    async with client() as http:
-        for _ in range(2):
-            await http.post(
-                "/v1/chat/completions",
-                json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
-            )
+async def test_upstream_client_is_pooled_and_closed_on_shutdown(upstream) -> None:
+    for _ in range(2):
+        await post(model="m", messages=[{"role": "user", "content": "x"}])
 
-    assert len(FakeOpenAI.instances) == 1
+    assert upstream.clients == 1
+    assert len(upstream.requests) == 2
     await proxy.close_client()
-    assert FakeOpenAI.instances[0].closed is True
     assert proxy._upstream is None
