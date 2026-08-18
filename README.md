@@ -85,6 +85,13 @@ that resolve to the same numeric version are run once. `make eval` prints each a
 and Langfuse URL. Case, model, prompt, and concurrency filters only change that run; all traces,
 dataset-run links, prompt-version links, failures, scores, and comparisons remain in Langfuse.
 
+Each item gets two scores, defined for every item so runs stay comparable: `pass` (boolean, all
+assertions held) and `assertion_rate` (fraction that held). Category breakdowns are run-level
+scores — `pass_rate` over all 45 items, plus `pass_rate:<category>` and a
+`pass_rate:negative-control` / `pass_rate:positive-case` split — each carrying its own denominator
+in the score comment. Categories come from dataset item metadata, so slice items by
+`metadata.category` in the Langfuse UI rather than by score name.
+
 ## Prompt workflow
 
 Edit prompts and create versions in Langfuse, then label a version `candidate`. Compare it with

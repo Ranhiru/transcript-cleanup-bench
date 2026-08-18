@@ -67,12 +67,11 @@ def resolve_prompt_selections(
     return selections
 
 
-def assertion_evaluator(
-    *, output: Any, expected_output: dict[str, Any], **_: Any
-) -> list[Evaluation]:
+def check_assertions(output: Any, assertions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Annotate each assertion with its position and whether it held."""
     normalized = str(output if output is not None else "").strip()
 
-    def check(assertion: dict[str, Any]) -> bool:
+    def holds(assertion: dict[str, Any]) -> bool:
         kind = assertion["type"]
         value = assertion["value"]
         if kind == "equals":
@@ -90,32 +89,73 @@ def assertion_evaluator(
             return not any(candidate.lower() in folded for candidate in value)
         raise ValueError(f"Unsupported assertion type: {kind}")
 
-    checked = [
-        {"index": index, **assertion, "passed": check(assertion)}
-        for index, assertion in enumerate(expected_output["assertions"])
+    return [
+        {"index": index, **assertion, "passed": holds(assertion)}
+        for index, assertion in enumerate(assertions)
     ]
+
+
+def assertion_evaluator(
+    *, output: Any, expected_output: dict[str, Any], **_: Any
+) -> list[Evaluation]:
+    """Score one item. Both scores are defined for every item so runs stay comparable."""
+    checked = check_assertions(output, expected_output["assertions"])
     failed = [assertion for assertion in checked if not assertion["passed"]]
-    evaluations = [
+    held = len(checked) - len(failed)
+    summary = f"{held} of {len(checked)} assertions passed"
+    return [
         Evaluation(
             name="pass",
             value=not failed,
             data_type="BOOLEAN",
-            comment=f"{len(checked) - len(failed)} of {len(checked)} assertions passed",
+            comment=summary,
             metadata={"failedAssertions": failed},
-        )
+        ),
+        Evaluation(
+            name="assertion_rate",
+            value=held / len(checked) if checked else 1.0,
+            data_type="NUMERIC",
+            comment=summary,
+            metadata={"failedAssertions": failed},
+        ),
     ]
-    for metric in dict.fromkeys(assertion["metric"] for assertion in checked):
-        matching = [assertion for assertion in checked if assertion["metric"] == metric]
-        metric_failures = [assertion for assertion in matching if not assertion["passed"]]
-        evaluations.append(
-            Evaluation(
-                name=metric,
-                value=(len(matching) - len(metric_failures)) / len(matching),
-                data_type="NUMERIC",
-                metadata={"failedAssertions": metric_failures},
-            )
+
+
+def facet_pass_rates(*, item_results: list[Any], **_: Any) -> list[Evaluation]:
+    """Aggregate pass rates over dataset facets, attached to the run rather than an item.
+
+    Categories live in dataset item metadata, so each rate carries its own denominator
+    instead of being averaged over whichever items happened to define a metric.
+    """
+    groups: dict[str, list[bool]] = {}
+    for result in item_results:
+        outcome = next(
+            (item.value for item in result.evaluations if item.name == "pass"), None
         )
-    return evaluations
+        if outcome is None:
+            continue
+        metadata = getattr(result.item, "metadata", None) or {}
+        facets = ["pass_rate"]
+        if category := metadata.get("category"):
+            facets.append(f"pass_rate:{category}")
+        facets.append(
+            "pass_rate:negative-control"
+            if metadata.get("negative_control")
+            else "pass_rate:positive-case"
+        )
+        for facet in facets:
+            groups.setdefault(facet, []).append(bool(outcome))
+
+    return [
+        Evaluation(
+            name=facet,
+            value=sum(outcomes) / len(outcomes),
+            data_type="NUMERIC",
+            comment=f"{sum(outcomes)} of {len(outcomes)} items passed",
+            metadata={"items": len(outcomes)},
+        )
+        for facet, outcomes in sorted(groups.items())
+    ]
 
 
 def filter_cases(dataset: Any, cases: list[str] | None) -> Any:
@@ -184,6 +224,7 @@ def run_pair(
         description="Transcript cleanup benchmark",
         task=task,
         evaluators=[assertion_evaluator],
+        run_evaluators=[facet_pass_rates],
         max_concurrency=concurrency,
         metadata={
             "model": model["id"],
@@ -193,6 +234,67 @@ def run_pair(
             "prompt_label": selection.requested_label,
         },
     )
+
+
+def leaderboard(rows: list[tuple[dict[str, Any], Any]]) -> str:
+    """Rank models by pass rate. Langfuse orders experiments by time and cannot sort by score.
+
+    Facets are rows and models are columns, so adding a category grows the table
+    downwards rather than past the width of a terminal.
+    """
+    def rate(result: Any, name: str) -> float | None:
+        return next(
+            (item.value for item in result.run_evaluations if item.name == name), None
+        )
+
+    def mean_assertion_rate(result: Any) -> float:
+        values = [
+            score.value
+            for item in result.item_results
+            for score in item.evaluations
+            if score.name == "assertion_rate"
+        ]
+        return sum(values) / len(values) if values else 0.0
+
+    ranked = sorted(
+        rows,
+        key=lambda row: (rate(row[1], "pass_rate") or 0, mean_assertion_rate(row[1])),
+        reverse=True,
+    )
+    facets = sorted(
+        {
+            item.name
+            for _, result in rows
+            for item in result.run_evaluations
+            if item.name != "pass_rate"
+        }
+    )
+    measures: list[tuple[str, Any]] = [
+        ("pass_rate", lambda result: rate(result, "pass_rate")),
+        ("assertion_rate", mean_assertion_rate),
+    ]
+    measures += [
+        (facet.removeprefix("pass_rate:"), lambda result, facet=facet: rate(result, facet))
+        for facet in facets
+    ]
+
+    label = max(len(name) for name, _ in measures) + 2
+    columns = [model["label"] for model, _ in ranked]
+    cell = max(max(len(name) for name in columns), 7) + 2
+    lines = [
+        "",
+        "Leaderboard — ranked by pass rate, then assertion rate",
+        "",
+        "measure".ljust(label) + "".join(name.rjust(cell) for name in columns),
+        "-" * (label + cell * len(columns)),
+    ]
+    for name, measure in measures:
+        values = [measure(result) for _, result in ranked]
+        lines.append(
+            name.ljust(label)
+            + "".join(("-" if v is None else f"{v:.3f}").rjust(cell) for v in values)
+        )
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -220,10 +322,14 @@ def main() -> None:
             args.prompt_label,
             args.prompt_version,
         )
+        rows = []
         for model in models:
             for selection in selections:
                 result = run_pair(dataset, config, model, selection, concurrency, started_at)
                 print(result.format())
+                rows.append((model, result))
+        if len(rows) > 1:
+            print(leaderboard(rows))
     finally:
         langfuse.shutdown()
 
