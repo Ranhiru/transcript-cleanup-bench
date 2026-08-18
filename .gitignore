@@ -1,6 +1,3 @@
-# promptfoo's repo-local state, pointed at by PROMPTFOO_CONFIG_DIR in the Makefile.
-# Holds the result database (tens of MB), the response cache and logs — all
-# machine-local. The published numbers live in results/, which is tracked.
 .promptfoo/
 .env
 .venv/

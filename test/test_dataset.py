@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
+from langfuse.api import NotFoundError
 
 from transcript_cleanup_bench import dataset
 
@@ -36,22 +36,15 @@ def test_stable_migration_id_and_expanded_aliases() -> None:
     assert repeated[0]["expectedOutput"]["assertions"][-1] is not repeated[1]["expectedOutput"]["assertions"][-1]
 
 
-class NotFound(Exception):
-    status_code = 404
-
-
 class FakeLangfuse:
     def __init__(self, exists: bool) -> None:
         self.exists = exists
         self.datasets: list[dict] = []
         self.items: list[dict] = []
-        self.api = SimpleNamespace(
-            datasets=SimpleNamespace(get=self.get_dataset),
-        )
 
     def get_dataset(self, _name, fetch_items_page_size=None):
         if not self.exists:
-            raise NotFound()
+            raise NotFoundError(body="absent")
         return object()
 
     def create_dataset(self, **values):

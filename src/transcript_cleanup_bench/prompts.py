@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 from langfuse.model import ChatPromptClient
 
-from .dataset import client
+from .config import REPO, langfuse_client, load_env
 
-REPO = Path(__file__).resolve().parents[2]
 SEEDS = (
     (REPO / "prompts" / "v1.txt", ["baseline"]),
     (REPO / "prompts" / "v2.txt", ["production"]),
@@ -82,7 +80,8 @@ def bootstrap(langfuse: Any, name: str | None = None) -> bool:
 
 
 def main() -> None:
-    langfuse = client()
+    load_env()
+    langfuse = langfuse_client()
     try:
         bootstrap(langfuse)
     finally:

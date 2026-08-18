@@ -1,4 +1,3 @@
-dataset: evaluation/transcript-cleanup
 concurrency: 8
 
 models:

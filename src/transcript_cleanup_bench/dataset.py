@@ -9,24 +9,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable
 
-from dotenv import load_dotenv
 from langfuse import Langfuse
-from langfuse.api import DatasetStatus
+from langfuse.api import DatasetStatus, NotFoundError
 
-from . import DATASET_NAME
+from .config import DATASET_NAME, REPO, langfuse_client, load_env
 
-REPO = Path(__file__).resolve().parents[2]
 SNAPSHOT = REPO / "datasets" / "evaluation-transcript-cleanup.jsonl"
-
-
-def client() -> Langfuse:
-    load_dotenv(REPO / ".env")
-    return Langfuse(
-        public_key=os.environ.get("LANGFUSE_PUBLIC_KEY"),
-        secret_key=os.environ.get("LANGFUSE_SECRET_KEY"),
-        base_url=os.environ.get("LANGFUSE_BASE_URL", "http://localhost:4001"),
-        additional_headers={"x-langfuse-ingestion-version": "4"},
-    )
 
 
 def load_snapshot(path: Path = SNAPSHOT) -> list[dict[str, Any]]:
@@ -37,15 +25,13 @@ def load_snapshot(path: Path = SNAPSHOT) -> list[dict[str, Any]]:
 
 
 def normalize_item(item: Any) -> dict[str, Any]:
-    status = item.status.value if hasattr(item.status, "value") else str(item.status)
-    normalized = {
+    return {
         "id": item.id,
         "input": item.input,
         "expectedOutput": item.expected_output,
         "metadata": item.metadata,
-        "status": status,
+        "status": getattr(item.status, "value", str(item.status)),
     }
-    return normalized
 
 
 def normalized_bytes(items: Iterable[dict[str, Any]]) -> bytes:
@@ -55,8 +41,8 @@ def normalized_bytes(items: Iterable[dict[str, Any]]) -> bytes:
     ).encode()
 
 
-def snapshot_hash(content: bytes | None = None) -> str:
-    return hashlib.sha256(content if content is not None else SNAPSHOT.read_bytes()).hexdigest()
+def snapshot_hash(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
 
 
 def atomic_write(path: Path, content: bytes) -> None:
@@ -78,9 +64,8 @@ def bootstrap(langfuse: Langfuse) -> bool:
         langfuse.get_dataset(DATASET_NAME, fetch_items_page_size=1)
         print(f"dataset exists; leaving {DATASET_NAME} unchanged")
         return False
-    except Exception as error:
-        if getattr(error, "status_code", None) != 404:
-            raise
+    except NotFoundError:
+        pass
 
     items = load_snapshot()
     langfuse.create_dataset(
@@ -107,8 +92,8 @@ def fetch_version(langfuse: Langfuse, version: datetime | None = None) -> tuple[
     return pinned, normalized_bytes(normalize_item(item) for item in dataset.items)
 
 
-def export(langfuse: Langfuse, version: datetime | None = None) -> tuple[datetime, str]:
-    pinned, content = fetch_version(langfuse, version)
+def export(langfuse: Langfuse) -> tuple[datetime, str]:
+    pinned, content = fetch_version(langfuse)
     atomic_write(SNAPSHOT, content)
     digest = snapshot_hash(content)
     print(f"exported {DATASET_NAME} at {pinned.isoformat()} ({digest})")
@@ -129,7 +114,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["bootstrap", "export", "check"])
     args = parser.parse_args()
-    langfuse = client()
+    load_env()
+    langfuse = langfuse_client()
     try:
         if args.command == "bootstrap":
             bootstrap(langfuse)

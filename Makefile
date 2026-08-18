@@ -12,7 +12,7 @@ setup: ## Install locked dependencies
 	uv sync --frozen --all-groups
 
 up: ## Start Langfuse and the Handy tracing proxy
-	docker compose up --detach --build
+	docker compose up --detach --build --wait
 
 down: ## Stop the stack without deleting volumes
 	docker compose down
@@ -21,7 +21,6 @@ status: ## Show local stack status
 	docker compose ps
 
 sync: ## Bootstrap Langfuse prompts and dataset from tracked seeds
-	$(RUN) scripts/wait_for_langfuse.py
 	$(RUN) -m transcript_cleanup_bench.prompts
 	$(RUN) -m transcript_cleanup_bench.dataset bootstrap
 
@@ -38,4 +37,4 @@ view: ## Open Langfuse in the default browser
 	open http://localhost:4001
 
 test: ## Run the test suite
-	PYTHONPATH=src .venv/bin/pytest
+	.venv/bin/pytest

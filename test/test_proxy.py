@@ -131,14 +131,14 @@ class FakePrompt:
 def fake_openai(monkeypatch):
     FakeOpenAI.instances.clear()
     FakeOpenAI.error = None
+    monkeypatch.setattr(proxy, "_upstream", None)
     monkeypatch.setattr(proxy.openai, "AsyncOpenAI", FakeOpenAI)
     monkeypatch.setenv("OPENAI_API_HOST", "https://provider.example/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "server-secret")
     monkeypatch.setenv("LANGFUSE_PROMPT_NAME", "transcript-cleanup")
     monkeypatch.setenv("LANGFUSE_PROMPT_LABEL", "production")
-    monkeypatch.delenv("CONTAINERIZED", raising=False)
     prompt = FakePrompt()
-    monkeypatch.setattr(proxy, "Langfuse", lambda **options: "langfuse")
+    monkeypatch.setattr(proxy, "langfuse_client", lambda: "langfuse")
 
     def resolve_prompt(langfuse, *, name, label):
         assert langfuse == "langfuse"
@@ -156,28 +156,6 @@ def client() -> httpx.AsyncClient:
     )
 
 
-def test_langfuse_client_enables_v4_ingestion(monkeypatch) -> None:
-    options = {}
-
-    def fake_langfuse(**values):
-        options.update(values)
-        return "client"
-
-    monkeypatch.setattr(proxy, "Langfuse", fake_langfuse)
-    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "public")
-    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "secret")
-    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://langfuse.example")
-
-    assert proxy.langfuse_client() == "client"
-    assert options == {
-        "public_key": "public",
-        "secret_key": "secret",
-        "base_url": "https://langfuse.example",
-        "additional_headers": {"x-langfuse-ingestion-version": "4"},
-    }
-
-
-@pytest.mark.asyncio
 async def test_non_streaming_compiles_prompt_links_version_and_preserves_options(
     fake_openai,
 ) -> None:
@@ -215,10 +193,8 @@ async def test_non_streaming_compiles_prompt_links_version_and_preserves_options
         "repetition_penalty": 1.1,
         "chat_template_kwargs": {"enable_thinking": False},
     }
-    assert upstream.closed is True
 
 
-@pytest.mark.asyncio
 async def test_streaming_serializes_native_openai_chunks_as_sse() -> None:
     async with client() as http:
         response = await http.post(
@@ -232,30 +208,24 @@ async def test_streaming_serializes_native_openai_chunks_as_sse() -> None:
         for chunk in FakeOpenAI.stream_chunks
     ) + "data: [DONE]\n\n"
     assert FakeOpenAI.instances[0].calls[0]["temperature"] == 0
-    assert FakeOpenAI.instances[0].closed is True
 
 
-@pytest.mark.asyncio
-async def test_models_lists_upstream_models_and_closes_client() -> None:
+async def test_models_lists_upstream_models() -> None:
     async with client() as http:
         response = await http.get("/v1/models")
     assert response.status_code == 200
     assert response.json() == FakeOpenAI.models_response
-    assert FakeOpenAI.instances[0].closed is True
 
 
-@pytest.mark.asyncio
 async def test_models_upstream_failure_returns_openai_502() -> None:
     FakeOpenAI.error = RuntimeError("offline")
     async with client() as http:
         response = await http.get("/v1/models")
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "upstream_unavailable"
-    assert FakeOpenAI.instances[0].closed is True
 
 
-@pytest.mark.asyncio
-async def test_upstream_failure_returns_openai_502_and_closes_client() -> None:
+async def test_upstream_failure_returns_openai_502() -> None:
     FakeOpenAI.error = RuntimeError("offline")
     async with client() as http:
         response = await http.post(
@@ -264,10 +234,8 @@ async def test_upstream_failure_returns_openai_502_and_closes_client() -> None:
         )
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "upstream_unavailable"
-    assert FakeOpenAI.instances[0].closed is True
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "messages",
     [
@@ -293,7 +261,6 @@ async def test_invalid_handy_messages_return_openai_400(messages) -> None:
     assert not FakeOpenAI.instances
 
 
-@pytest.mark.asyncio
 async def test_prompt_failure_returns_openai_503(monkeypatch) -> None:
     def fail(*args, **kwargs):
         raise RuntimeError("offline")
@@ -310,10 +277,15 @@ async def test_prompt_failure_returns_openai_503(monkeypatch) -> None:
     assert not FakeOpenAI.instances
 
 
-def test_container_rewrites_only_loopback_api_hosts(monkeypatch) -> None:
-    monkeypatch.setenv("CONTAINERIZED", "true")
-    monkeypatch.setenv("OPENAI_API_HOST", "http://localhost:8000/v1")
-    assert proxy.api_host() == "http://host.docker.internal:8000/v1"
+async def test_upstream_client_is_pooled_across_requests_and_closed_on_shutdown() -> None:
+    async with client() as http:
+        for _ in range(2):
+            await http.post(
+                "/v1/chat/completions",
+                json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+            )
 
-    monkeypatch.setenv("OPENAI_API_HOST", "https://api.openai.com/v1")
-    assert proxy.api_host() == "https://api.openai.com/v1"
+    assert len(FakeOpenAI.instances) == 1
+    await proxy.close_client()
+    assert FakeOpenAI.instances[0].closed is True
+    assert proxy._upstream is None

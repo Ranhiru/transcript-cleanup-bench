@@ -1,47 +1,47 @@
 from __future__ import annotations
 
+import asyncio
 import os
-from pathlib import Path
+from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from langfuse import Langfuse
 from langfuse.openai import openai
 
+from .config import EXTRA_BODY_OPTIONS, langfuse_client, load_env
 from .prompts import prompt_label, prompt_name, resolve
 
-REPO = Path(__file__).resolve().parents[2]
-load_dotenv(REPO / ".env")
+load_env()
 
-app = FastAPI(title="OpenAI-compatible tracing proxy")
-
-EXTRA_BODY_OPTIONS = {"top_k", "min_p", "repetition_penalty", "chat_template_kwargs"}
-
-
-def api_host() -> str:
-    host = os.environ["OPENAI_API_HOST"]
-    if os.environ.get("CONTAINERIZED") == "true":
-        host = host.replace("://localhost", "://host.docker.internal")
-        host = host.replace("://127.0.0.1", "://host.docker.internal")
-    return host
+_upstream: openai.AsyncOpenAI | None = None
 
 
 def client() -> openai.AsyncOpenAI:
-    return openai.AsyncOpenAI(
-        base_url=api_host(),
-        api_key=os.environ["OPENAI_API_KEY"],
-    )
+    """Hold one upstream client for the process so connections stay pooled."""
+    global _upstream
+    if _upstream is None:
+        _upstream = openai.AsyncOpenAI(
+            base_url=os.environ["OPENAI_API_HOST"],
+            api_key=os.environ["OPENAI_API_KEY"],
+        )
+    return _upstream
 
 
-def langfuse_client() -> Langfuse:
-    return Langfuse(
-        public_key=os.environ.get("LANGFUSE_PUBLIC_KEY"),
-        secret_key=os.environ.get("LANGFUSE_SECRET_KEY"),
-        base_url=os.environ.get("LANGFUSE_BASE_URL", "http://localhost:4001"),
-        additional_headers={"x-langfuse-ingestion-version": "4"},
-    )
+async def close_client() -> None:
+    global _upstream
+    if _upstream is not None:
+        await _upstream.close()
+        _upstream = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    await close_client()
+
+
+app = FastAPI(title="OpenAI-compatible tracing proxy", lifespan=lifespan)
 
 
 def completion_options(body: dict[str, Any]) -> dict[str, Any]:
@@ -105,17 +105,6 @@ def raw_transcript(body: Any) -> str | None:
     return content if isinstance(content, str) else None
 
 
-async def parse_handy_request(request: Request) -> tuple[dict[str, Any], str] | None:
-    try:
-        body = await request.json()
-    except Exception:
-        return None
-    transcript = raw_transcript(body)
-    if transcript is None:
-        return None
-    return body, transcript
-
-
 def prepare_completion(body: dict[str, Any], transcript: str) -> dict[str, Any]:
     langfuse_prompt = resolve(
         langfuse_client(),
@@ -132,31 +121,10 @@ def prepare_completion(body: dict[str, Any], transcript: str) -> dict[str, Any]:
     return options
 
 
-async def create_completion(options: dict[str, Any]) -> tuple[Any, Any]:
-    upstream = client()
-    try:
-        completion = await upstream.chat.completions.create(**options)
-    except Exception:
-        await upstream.close()
-        raise
-    return upstream, completion
-
-
-async def stream_events(completion: Any, upstream: Any) -> AsyncIterator[str]:
-    try:
-        async for chunk in completion:
-            yield f"data: {chunk.model_dump_json(exclude_none=True)}\n\n"
-        yield "data: [DONE]\n\n"
-    finally:
-        await upstream.close()
-
-
-async def completion_response(completion: Any, upstream: Any) -> Response:
-    try:
-        content = completion.model_dump_json(exclude_none=True)
-        return Response(content=content, media_type="application/json")
-    finally:
-        await upstream.close()
+async def stream_events(completion: Any) -> AsyncIterator[str]:
+    async for chunk in completion:
+        yield f"data: {chunk.model_dump_json(exclude_none=True)}\n\n"
+    yield "data: [DONE]\n\n"
 
 
 @app.get("/healthz")
@@ -166,28 +134,28 @@ async def healthz() -> dict[str, str]:
 
 @app.get("/v1/models")
 async def models():
-    upstream = client()
     try:
-        response = await upstream.models.list()
-        return Response(
-            content=response.model_dump_json(exclude_none=True),
-            media_type="application/json",
-        )
+        response = await client().models.list()
     except Exception as error:
         return upstream_error(error)
-    finally:
-        await upstream.close()
+    return Response(
+        content=response.model_dump_json(exclude_none=True),
+        media_type="application/json",
+    )
 
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
-    parsed = await parse_handy_request(request)
-    if parsed is None:
+    try:
+        body = await request.json()
+    except Exception:
         return invalid_messages()
-    body, transcript = parsed
+    transcript = raw_transcript(body)
+    if transcript is None:
+        return invalid_messages()
 
     try:
-        options = prepare_completion(body, transcript)
+        options = await asyncio.to_thread(prepare_completion, body, transcript)
     except Exception as error:
         return openai_error(
             503,
@@ -197,13 +165,13 @@ async def chat_completions(request: Request):
         )
 
     try:
-        upstream, completion = await create_completion(options)
+        completion = await client().chat.completions.create(**options)
     except Exception as error:
         return upstream_error(error)
 
     if options.get("stream") is True:
-        return StreamingResponse(
-            stream_events(completion, upstream),
-            media_type="text/event-stream",
-        )
-    return await completion_response(completion, upstream)
+        return StreamingResponse(stream_events(completion), media_type="text/event-stream")
+    return Response(
+        content=completion.model_dump_json(exclude_none=True),
+        media_type="application/json",
+    )

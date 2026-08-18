@@ -1,26 +1,22 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import yaml
-from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langfuse import Evaluation
 from langfuse.langchain import CallbackHandler
 from langfuse.model import ChatPromptClient
 
-from .dataset import client
+from .config import DATASET_NAME, EXTRA_BODY_OPTIONS, REPO, langfuse_client, load_env
 from .prompts import prompt_label, prompt_name, resolve
 
-REPO = Path(__file__).resolve().parents[2]
 CONFIG = REPO / "benchmark.yaml"
 
 
@@ -53,8 +49,7 @@ def resolve_prompt_selections(
     labels: list[str] | None,
     versions: list[int] | None,
 ) -> list[PromptSelection]:
-    default_labels = [prompt_label()] if not labels and not versions else []
-    requested_labels = list(dict.fromkeys(labels or default_labels))
+    requested_labels = list(dict.fromkeys(labels or ([prompt_label()] if not versions else [])))
     requested_versions = list(dict.fromkeys(versions or []))
     selections: list[PromptSelection] = []
     seen_versions: set[int] = set()
@@ -105,7 +100,7 @@ def assertion_evaluator(
             name="pass",
             value=not failed,
             data_type="BOOLEAN",
-            comment="All assertions passed" if not failed else json.dumps(failed, ensure_ascii=False),
+            comment=f"{len(checked) - len(failed)} of {len(checked)} assertions passed",
             metadata={"failedAssertions": failed},
         )
     ]
@@ -146,15 +141,11 @@ def run_pair(
     started_at: str,
 ):
     sampler = config["sampler"]
+    available = {**sampler, **model}
     extensions = {
-        key: value
-        for key, value in {
-            "top_k": sampler.get("top_k"),
-            "min_p": sampler.get("min_p"),
-            "repetition_penalty": sampler.get("repetition_penalty"),
-            "chat_template_kwargs": model.get("chat_template_kwargs"),
-        }.items()
-        if value is not None
+        key: available[key]
+        for key in EXTRA_BODY_OPTIONS
+        if available.get(key) is not None
     }
     llm = ChatOpenAI(
         model=model["id"],
@@ -205,7 +196,7 @@ def run_pair(
 
 
 def main() -> None:
-    load_dotenv(REPO / ".env")
+    load_env()
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", action="append")
     parser.add_argument("--model", action="append")
@@ -219,17 +210,17 @@ def main() -> None:
     if concurrency < 1:
         raise SystemExit("concurrency must be at least 1")
 
-    langfuse = client()
+    langfuse = langfuse_client()
     try:
-        dataset = filter_cases(langfuse.get_dataset(config["dataset"]), args.case)
+        dataset = filter_cases(langfuse.get_dataset(DATASET_NAME), args.case)
         started_at = datetime.now(UTC).strftime("eval-%Y%m%dT%H%M%SZ")
+        selections = resolve_prompt_selections(
+            langfuse,
+            prompt_name(),
+            args.prompt_label,
+            args.prompt_version,
+        )
         for model in models:
-            selections = resolve_prompt_selections(
-                langfuse,
-                prompt_name(),
-                args.prompt_label,
-                args.prompt_version,
-            )
             for selection in selections:
                 result = run_pair(dataset, config, model, selection, concurrency, started_at)
                 print(result.format())

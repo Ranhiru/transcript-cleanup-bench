@@ -48,7 +48,9 @@ Configure `.env` from the tracked example before starting the stack. Keep creden
 
 Configure Handy's custom OpenAI provider with base URL `http://localhost:4000/v1`. The proxy
 injects `OPENAI_API_KEY`, so Handy does not need the upstream credential. Set `OPENAI_API_HOST`
-to switch between a local server and a cloud provider. Both streaming and
+to switch between a local server and a cloud provider, and `PROXY_OPENAI_API_HOST` when the
+proxy container needs a different address for it — the tracked example points at
+`host.docker.internal` for a server listening on the host. Both streaming and
 non-streaming Chat Completions are supported and traced through Langfuse's OpenAI integration.
 Set Handy's custom prompt template to exactly `${output}` so its single user message contains only
 the raw transcript. The proxy rejects other message shapes and replaces that message with the
