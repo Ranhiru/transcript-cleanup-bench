@@ -5,6 +5,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -18,12 +19,33 @@ load_env()
 _upstream: openai.AsyncOpenAI | None = None
 
 
+LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+def api_host() -> str:
+    """In a container, a loopback upstream means the host, reachable via the gateway.
+
+    Matches the hostname exactly, so a real host merely starting with `localhost`
+    is left alone.
+    """
+    host = os.environ["OPENAI_API_HOST"]
+    if os.environ.get("CONTAINERIZED") != "true":
+        return host
+    parts = urlsplit(host)
+    if parts.hostname not in LOOPBACK:
+        return host
+    gateway = "host.docker.internal"
+    return urlunsplit(
+        parts._replace(netloc=f"{gateway}:{parts.port}" if parts.port else gateway)
+    )
+
+
 def client() -> openai.AsyncOpenAI:
     """Hold one upstream client for the process so connections stay pooled."""
     global _upstream
     if _upstream is None:
         _upstream = openai.AsyncOpenAI(
-            base_url=os.environ["OPENAI_API_HOST"],
+            base_url=api_host(),
             api_key=os.environ["OPENAI_API_KEY"],
         )
     return _upstream

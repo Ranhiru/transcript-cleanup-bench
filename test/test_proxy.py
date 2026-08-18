@@ -274,3 +274,26 @@ async def test_upstream_client_is_pooled_and_closed_on_shutdown(upstream) -> Non
     assert len(upstream.requests) == 2
     await proxy.close_client()
     assert proxy._upstream is None
+
+
+def test_loopback_upstream_is_rewritten_to_the_docker_host_gateway(monkeypatch) -> None:
+    monkeypatch.setenv("CONTAINERIZED", "true")
+    for given, expected in [
+        ("http://localhost:8000/v1", "http://host.docker.internal:8000/v1"),
+        ("http://127.0.0.1:8000/v1", "http://host.docker.internal:8000/v1"),
+        ("http://localhost/v1", "http://host.docker.internal/v1"),
+    ]:
+        monkeypatch.setenv("OPENAI_API_HOST", given)
+        assert proxy.api_host() == expected
+
+
+def test_non_loopback_and_uncontainerized_upstreams_are_left_alone(monkeypatch) -> None:
+    monkeypatch.setenv("CONTAINERIZED", "true")
+    # A hostname merely starting with "localhost" is a different host.
+    for untouched in ["https://api.openai.com/v1", "http://localhost.internal:8000/v1"]:
+        monkeypatch.setenv("OPENAI_API_HOST", untouched)
+        assert proxy.api_host() == untouched
+
+    monkeypatch.delenv("CONTAINERIZED", raising=False)
+    monkeypatch.setenv("OPENAI_API_HOST", "http://localhost:8000/v1")
+    assert proxy.api_host() == "http://localhost:8000/v1"

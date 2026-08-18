@@ -88,7 +88,8 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     environment:
-      OPENAI_API_HOST: ${PROXY_OPENAI_API_HOST:-${OPENAI_API_HOST}}
+      CONTAINERIZED: "true"
+      OPENAI_API_HOST: ${OPENAI_API_HOST}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
