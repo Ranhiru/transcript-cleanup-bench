@@ -1,10 +1,20 @@
 # Transcript Cleanup Bench
 
-Benchmarks how effective local LLM models are at transcript clean up, using [promptfoo](https://promptfoo.dev). The goal is consistently compare these models across standardized tasks while improving the prompt
+Benchmarks local LLM transcript cleanup with Langfuse experiments. It also provides an
+OpenAI-compatible tracing proxy for [Handy](https://handy.computer/).
 
-Currently used with [Handy](https://handy.computer/)
+```text
+Handy → proxy localhost:4000 → OpenAI-compatible API
+             └── traces → Langfuse localhost:4001
 
-### Hardware and server
+Langfuse prompt + dataset → experiment runner → OpenAI-compatible API
+                           └── traces, scores, and comparisons → Langfuse
+```
+
+Langfuse is the sole benchmark results store. The tracked JSONL dataset is a reproducible seed
+for initializing a fresh local project, not a second results or schema system.
+
+## Hardware and server
 
 | | |
 |:---|:---|
@@ -14,75 +24,115 @@ Currently used with [Handy](https://handy.computer/)
 | macOS | 15.7.8 (24G824) |
 | server | oMLX 0.5.5 (2128), prompt cache disabled |
 | engine | mlx 0.32.0, mlx-lm 0.31.3 |
-| promptfoo | 0.122.0 |
+| Langfuse | 4.0.0 |
 
-Sampler settings are pinned per provider in `promptfooconfig.yaml` rather than taken
-from the OMLX defaults, so the settings that produced these numbers are visible in the
-repo. Any value not sent by promptfoo falls back to whatever the server defaults to,
-which is invisible in the results — so they are all set explicitly.
-
-## Models used and defaults
-
-Currently testing the Gemma family and Qwen3.6 MoE model that works reasonably fast. Latency is not measured yet because 
-promptfoo's recorded latency_ms is far too low to be real. Also OMLX has a cache that can skew results during repeated runs with the same prompt.
-
-All the models used here have thinking turned off from the server. Apart from hardcoded values in the promptfoo config, all settings are taken from general OMLX presets for each model family
-
-Qwen3.6 MoE model use the `qwen3.5/6(r, general)` preset, while Gemma models use the `gemma4` preset.
-
-## Results
-
-<!-- BENCHMARK:START -->
-
-### Leaderboard
-
-Ranked by tests passed. Best result first.
-
-| # | model | prompt | passed | score |
-|---:|:---|:---|---:|:---|
-| 1 | Qwen 3.6 35B-A3B | v2 | 39/39 | `█████████` 100.0% |
-| 2 | Gemma 4 12B QAT | v2 | 38/39 | `█████████` 97.4% |
-| 3 | Gemma 4 E2B | v2 | 36/39 | `████████░` 92.3% |
-| 4 | Gemma 4 E4B | v2 | 35/39 | `████████░` 89.7% |
-| 5 | Gemma 4 12B QAT | v1 | 34/39 | `████████░` 87.2% |
-| 6 | Gemma 4 E4B | v1 | 34/39 | `████████░` 87.2% |
-| 7 | Qwen 3.6 35B-A3B | v1 | 34/39 | `████████░` 87.2% |
-| 8 | Gemma 4 E2B | v1 | 31/39 | `███████░░` 79.5% |
-
-Full per-test results: [`results/latest.csv`](results/latest.csv) (312 rows). Per-category scores: [`results/summary.json`](results/summary.json). Eval id `eval-grE-2026-08-05T02:35:39`.
-
-<!-- BENCHMARK:END -->
-
-Regenerate with `make bench` (runs the suite) or `make report` (rebuilds the leaderboard
-from the published run without re-running anything). Everything between the markers above
-is generated — edit `scripts/report.py`, not the table.
-
-`make report` stays pinned to the eval recorded in `results/summary.json`, so a filtered
-`make eval` cannot quietly replace the benchmark with a handful of rows. `make bench`
-moves the pin.
+Sampler settings and model IDs are pinned in `benchmark.yaml`. The prompt is managed in Langfuse;
+the committed prompt files are used only to seed a fresh project. Qwen uses thinking disabled;
+Gemma models use their provider defaults.
 
 ## Setup
 
-Needs Node.js 20+, promptfoo and GNU Make. 
+Install Docker, `uv`, GNU Make, and configure any OpenAI-compatible API exposing the selected
+model IDs.
 
 ```fish
-make install    # pre-download the pinned promptfoo into the npx cache
-make version    # confirm which version is actually being run
+cp .env.example .env
+# Replace every change-me value in .env.
+make init
 ```
 
-If you would rather have the binary on your `PATH`, install the *same* version the
-`Makefile` pins so results stay comparable:
+`make init` refuses to start until `.env` exists and has no `change-me` values left, then runs
+`setup`, `up`, and `sync` in order. Those stay available individually: `setup` when the lockfile
+changes, `up` after a `down` or a reboot, `sync` against a fresh Langfuse volume. All three are
+idempotent, so `make init` is safe to re-run. Keep credentials local; `.env` is ignored by Git.
 
-Also needs a local/remote OpenAI compatible server serving the exact model IDs listed in `promptfooconfig.yaml`.
-This repo uses [OMLX](https://omlx.ai)
+Configure Handy's custom OpenAI provider with base URL `http://localhost:4000/v1`. The proxy
+injects `OPENAI_API_KEY`, so Handy does not need the upstream credential. Set `OPENAI_API_HOST`
+to switch between a local server and a cloud provider; a loopback address is rewritten to the
+Docker host gateway inside the proxy container, so one value works for both. Both streaming and
+non-streaming Chat Completions are supported and traced through Langfuse's OpenAI integration.
+Set Handy's custom prompt template to exactly `${output}` so its single user message contains only
+the raw transcript. The proxy rejects other message shapes and replaces that message with the
+compiled `LANGFUSE_PROMPT_NAME` / `LANGFUSE_PROMPT_LABEL` chat prompt.
+If Handy omits `temperature`, the proxy supplies `0`; an explicitly configured Handy temperature
+is preserved.
 
-## Run
+`make sync` creates two prompt versions only when `transcript-cleanup` does not exist: v1 receives
+the `baseline` label and v2 receives `production`. After creation, Langfuse is authoritative and
+sync never changes prompt content or labels. An existing prompt must be a chat prompt with a
+`production` label.
+
+## Run experiments
 
 ```fish
-make eval    # run every test against the prompts
-make view    # open the results grid in a browser
-make         # list the available targets
+make eval
+make eval ARGS="--case happy-1 --model 'Gemma 4 E4B'"
+make eval ARGS="--prompt-label production"
+make eval ARGS="--prompt-label candidate"
+make eval ARGS="--prompt-version 2"
+make eval ARGS="--prompt-label candidate --prompt-version 2"
+make eval ARGS="--concurrency 2"
+make status
+make view
+make down
 ```
+
+Each model-and-resolved-prompt-version pair is a Langfuse dataset experiment. With no prompt
+selector, `make eval` uses `LANGFUSE_PROMPT_LABEL` (`production` by default). Repeat
+`--prompt-label` and `--prompt-version` to compare several selectors in one invocation; selectors
+that resolve to the same numeric version are run once. `make eval` prints each aggregate summary
+and Langfuse URL. Case, model, prompt, and concurrency filters only change that run; all traces,
+dataset-run links, prompt-version links, failures, scores, and comparisons remain in Langfuse.
+
+Each item gets two scores, defined for every item so runs stay comparable: `pass` (boolean, all
+assertions held) and `assertion_rate` (fraction that held). Category breakdowns are run-level
+scores — `pass_rate` over all 45 items, plus `pass_rate:<category>` and a
+`pass_rate:negative-control` / `pass_rate:positive-case` split — each carrying its own denominator
+in the score comment. Categories come from dataset item metadata, so slice items by
+`metadata.category` in the Langfuse UI rather than by score name.
+
+## Prompt workflow
+
+Edit prompts and create versions in Langfuse, then label a version `candidate`. Compare it with
+`production` in the Langfuse UI or run:
+
+```fish
+make eval ARGS="--prompt-label production --prompt-label candidate"
+```
+
+After a successful comparison, move the `production` label to the winning version in Langfuse.
+The proxy disables prompt caching, so new label assignments apply to the next Handy request. It
+has no local fallback: if Langfuse cannot resolve the configured prompt, completions fail with an
+OpenAI-style 503 response.
+
+The dataset seed can be refreshed deliberately with `make dataset-export`, and
+`make dataset-check` compares it with the current Langfuse dataset.
+
+## Scheduled MinIO export
+
+The Compose stack already creates the `langfuse` bucket and permits the internal `minio`
+hostname in both Langfuse containers. Scheduled export settings are project integrations, so set
+this up once in **Project Settings → Integrations → Blob Storage** (or through Langfuse's public
+blob-storage integration REST API):
+
+- Provider: S3-compatible
+- Endpoint: `http://minio:9000`
+- Region: `auto`
+- Access key: `minio`
+- Secret key: the `MINIO_ROOT_PASSWORD` value from `.env`
+- Bucket: `langfuse`
+- Prefix: `exports/`
+- Export source: enriched observations and scores
+- Format: JSONL with gzip compression
+- History: full history
+- Schedule: daily
+
+Use the integration's **Validate** action before saving. Scheduled integrations are intentionally
+not configured through Compose environment variables; `LANGFUSE_S3_BATCH_EXPORT_*` variables are
+for the separate on-demand batch-export feature. See Langfuse's
+[scheduled blob export](https://langfuse.com/docs/api-and-data-platform/features/export-to-blob-storage)
+and [self-hosted MinIO configuration](https://langfuse.com/self-hosting/deployment/infrastructure/blobstorage)
+documentation.
 
 ## License
 

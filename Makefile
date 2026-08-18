@@ -1,54 +1,51 @@
-# Pinned promptfoo version — bump deliberately, never track @latest,
-# so eval results stay comparable between runs.
-PROMPTFOO_VERSION := 0.122.0
-PROMPTFOO := npx --yes promptfoo@$(PROMPTFOO_VERSION)
-
-# Scope promptfoo's state — result database, response cache, logs — to this repo
-# instead of the shared ~/.promptfoo. Without this, `make report` reads a database
-# holding every promptfoo run on the machine, so an eval from an unrelated project
-# could land in this README. promptfoo creates the directory on demand.
-# Exported, not just set, so scripts/report.py resolves the same database.
-export PROMPTFOO_CONFIG_DIR := $(CURDIR)/.promptfoo
-
-# Extra flags for eval, e.g. make eval ARGS="--filter-pattern mishears"
+PYTHON := .venv/bin/python
+RUN := PYTHONPATH=src $(PYTHON)
 ARGS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help eval bench report view version install clean
+.PHONY: help init setup up down status sync dataset-export dataset-check eval view test
 
-help: ## Show the available targets
-	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "  promptfoo version: $(PROMPTFOO_VERSION)"
+help: ## Show available targets
+	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-eval: ## Run every test against the prompts (fast, concurrent — not for publishing)
-	$(PROMPTFOO) eval $(ARGS)
+init: ## Install, start, and seed everything for a fresh clone
+	@test -f .env || { \
+		echo "No .env found. Run 'cp .env.example .env' and replace every change-me value." >&2; \
+		exit 1; }
+	@! grep -q change-me .env || { \
+		echo ".env still has change-me placeholders; replace them before starting." >&2; \
+		exit 1; }
+	$(MAKE) setup
+	$(MAKE) up
+	$(MAKE) sync
 
-# The published benchmark. Serialised and uncached so the numbers mean something:
-# all four models share one inference server, so concurrent requests queue behind
-# each other, which perturbs correctness and not just timing.
-# promptfoo exits 100 when any test fails, which is the normal state of a
-# benchmark — tolerate it so the report still runs, but let any other non-zero
-# code (bad config, server down) abort before publishing numbers.
-bench: ## Run the publishable benchmark, then regenerate the README
-	mkdir -p results
-	$(PROMPTFOO) eval --no-cache -j 1 -o results/latest.csv $(ARGS) || test $$? -eq 100
-	python3 scripts/report.py --latest
+setup: ## Install locked dependencies
+	uv sync --frozen --all-groups
 
-# Defaults to the eval the README already publishes, not whatever ran last, so a
-# filtered `make eval` cannot quietly overwrite the benchmark. Use `make bench`
-# (or ARGS="--latest") to move the pin.
-report: ## Rebuild the README tables from the published run (no re-run)
-	python3 scripts/report.py $(ARGS)
+up: ## Start Langfuse and the Handy tracing proxy
+	docker compose up --detach --build --wait
 
-view: ## Open the results grid in a browser
-	$(PROMPTFOO) view
+down: ## Stop the stack without deleting volumes
+	docker compose down
 
-version: ## Print the promptfoo version actually being run
-	$(PROMPTFOO) --version
+status: ## Show local stack status
+	docker compose ps
 
-install: ## Pre-download the pinned version into the npx cache
-	npx --yes promptfoo@$(PROMPTFOO_VERSION) --version
+sync: ## Bootstrap Langfuse prompts and dataset from tracked seeds
+	$(RUN) -m transcript_cleanup_bench.prompts
+	$(RUN) -m transcript_cleanup_bench.dataset bootstrap
 
-clean: ## Delete cached eval results
-	$(PROMPTFOO) cache clear
+dataset-export: ## Refresh the tracked dataset snapshot atomically
+	$(RUN) -m transcript_cleanup_bench.dataset export
+
+dataset-check: ## Check the tracked snapshot for Langfuse drift
+	$(RUN) -m transcript_cleanup_bench.dataset check
+
+eval: ## Run diagnostic experiments (default concurrency 8)
+	$(RUN) -m transcript_cleanup_bench.experiment $(ARGS)
+
+view: ## Open Langfuse in the default browser
+	open http://localhost:4001
+
+test: ## Run the test suite
+	.venv/bin/pytest
