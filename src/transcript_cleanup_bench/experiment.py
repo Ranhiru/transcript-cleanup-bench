@@ -15,6 +15,7 @@ from langfuse.langchain import CallbackHandler
 from langfuse.model import ChatPromptClient
 
 from .config import DATASET_NAME, EXTRA_BODY_OPTIONS, REPO, langfuse_client, load_env
+from .vocabulary import VocabularyContext, load_vocabulary
 from .prompts import prompt_label, prompt_name, resolve
 
 CONFIG = REPO / "benchmark.yaml"
@@ -199,8 +200,12 @@ def run_pair(
         extra_body=extensions,
     )
     langfuse_prompt = selection.prompt
-    template = ChatPromptTemplate.from_messages(langfuse_prompt.get_langchain_prompt())
-    template.metadata = {"langfuse_prompt": langfuse_prompt}
+    vocabulary = load_vocabulary()
+    template = experiment_prompt_template(langfuse_prompt, vocabulary)
+    template.metadata = {
+        "langfuse_prompt": langfuse_prompt,
+        "vocabulary_revision": vocabulary.revision,
+    }
     chain = template | llm
 
     async def task(*, item: Any, **_: Any) -> str:
@@ -232,8 +237,20 @@ def run_pair(
             "prompt_name": langfuse_prompt.name,
             "prompt_version": langfuse_prompt.version,
             "prompt_label": selection.requested_label,
+            "vocabulary_revision": vocabulary.revision,
         },
     )
+
+
+def experiment_prompt_template(
+    langfuse_prompt: Any, vocabulary: VocabularyContext
+) -> ChatPromptTemplate:
+    """Bind vocabulary while leaving the per-case transcript variable open."""
+    messages = langfuse_prompt.get_langchain_prompt()
+    if not any(role == "system" and "{vocabulary}" in content for role, content in messages):
+        raise ValueError("transcript-cleanup system prompt must contain {{vocabulary}}")
+    template = ChatPromptTemplate.from_messages(messages)
+    return template.partial(vocabulary=vocabulary.prompt)
 
 
 def leaderboard(rows: list[tuple[dict[str, Any], Any]]) -> str:
@@ -298,7 +315,7 @@ def leaderboard(rows: list[tuple[dict[str, Any], Any]]) -> str:
 
 
 def main() -> None:
-    load_env()
+    load_env("eval")
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", action="append")
     parser.add_argument("--model", action="append")

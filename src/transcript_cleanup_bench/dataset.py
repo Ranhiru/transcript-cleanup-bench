@@ -62,19 +62,22 @@ def atomic_write(path: Path, content: bytes) -> None:
 
 def bootstrap(langfuse: Langfuse) -> bool:
     try:
-        langfuse.get_dataset(DATASET_NAME, fetch_items_page_size=1)
-        print(f"dataset exists; leaving {DATASET_NAME} unchanged")
-        return False
+        dataset = langfuse.get_dataset(DATASET_NAME, fetch_items_page_size=100)
     except NotFoundError:
-        pass
+        items = load_snapshot()
+        langfuse.create_dataset(
+            name=DATASET_NAME,
+            description="Authoritative transcript-cleanup evaluation cases",
+            metadata={"seed": str(SNAPSHOT.relative_to(REPO))},
+        )
+        missing = items
+        created = True
+    else:
+        existing_ids = {item.id for item in dataset.items}
+        missing = [item for item in load_snapshot() if item["id"] not in existing_ids]
+        created = False
 
-    items = load_snapshot()
-    langfuse.create_dataset(
-        name=DATASET_NAME,
-        description="Authoritative transcript-cleanup evaluation cases",
-        metadata={"seed": str(SNAPSHOT.relative_to(REPO))},
-    )
-    for item in items:
+    for item in missing:
         langfuse.create_dataset_item(
             dataset_name=DATASET_NAME,
             id=item["id"],
@@ -83,8 +86,13 @@ def bootstrap(langfuse: Langfuse) -> bool:
             metadata=item["metadata"],
             status=DatasetStatus(item["status"]),
         )
-    print(f"bootstrapped {DATASET_NAME} with {len(items)} items")
-    return True
+    if created:
+        print(f"bootstrapped {DATASET_NAME} with {len(missing)} items")
+    elif missing:
+        print(f"imported {len(missing)} missing items into {DATASET_NAME}")
+    else:
+        print(f"dataset exists; {DATASET_NAME} is up to date")
+    return created or bool(missing)
 
 
 def fetch_version(langfuse: Langfuse, version: datetime | None = None) -> tuple[datetime, bytes]:
@@ -115,7 +123,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["bootstrap", "export", "check"])
     args = parser.parse_args()
-    load_env()
+    load_env("dataset")
     langfuse = langfuse_client()
     try:
         if args.command == "bootstrap":
