@@ -1,0 +1,78 @@
+- term: Xero
+  description: accounting software company
+- term: Anki
+  description: flashcard application used for study decks
+- term: Langfuse
+  description: LLM tracing, prompt management, and evaluation platform
+- term: reCAPTCHA
+  description: automated bot-detection challenge used in browser automation
+- term: TypeScript
+  description: programming language used for application source code
+- term: Lyrebird
+  description: company and product name
+- term: Lyrebird Health
+  description: healthcare technology company
+- term: Meetily
+  description: meeting recording and transcription application
+- term: Morty
+  description: project or tool discussed through its capabilities and implementation
+- term: Rectangle
+  description: macOS window-management application
+- term: Promptfoo
+  description: LLM prompt evaluation tool
+- term: Homebrew
+  description: macOS package manager
+- term: Neovim
+  description: text editor and configuration ecosystem
+- term: Ubiquiti
+  description: networking equipment company
+- term: Hikvision
+  description: security camera and surveillance equipment company
+- term: Oportun
+  description: financial technology company
+- term: Pepperstone
+  description: online trading company
+- term: Digit
+  description: company and product name
+- term: Codex
+  description: software-engineering coding agent
+- term: OpenCode
+  description: coding agent and command-line development tool
+- term: OpenRouter
+  description: hosted model routing platform
+- term: CLAUDE.md
+  description: repository instruction file for coding agents
+- term: AGENTS.md
+  description: repository instruction file for coding agents
+- term: .claude
+  description: Claude configuration directory
+- term: GitHub Actions
+  description: GitHub workflow automation product
+- term: Fastify
+  description: Node.js web framework with onRequest and preHandler hooks
+- term: BEGIN IMMEDIATE
+  description: SQLite transaction statement used for concurrency control
+- term: WASM
+  description: WebAssembly runtime or compilation target
+- term: GbE
+  description: gigabit Ethernet link-speed unit, including 2.5 GbE
+- term: CORS
+  description: Cross-Origin Resource Sharing and its HTTP headers
+- term: Next.js
+  description: React web application framework
+- term: Whisper Base
+  description: speech-recognition model variant
+- term: Cache API
+  description: browser API for cached request and response storage
+- term: Segment
+  description: customer data platform
+- term: Amplitude
+  description: product analytics platform
+- term: DOCX
+  description: Microsoft Word document file format
+- term: asdf
+  description: command-line version manager, written lowercase in command contexts
+- term: Elgato Wave Link
+  description: audio routing and mixing software used with Elgato microphones
+- term: custom views
+  description: saved or configured views in a software user interface

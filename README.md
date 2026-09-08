@@ -29,6 +29,10 @@ files only seed a fresh project.
 Sampler settings and model IDs are pinned in `benchmark.yaml`. Qwen uses thinking disabled; Gemma
 models use their provider defaults.
 
+The Compose stack disables ClickHouse's continuous CPU, wall-clock, and memory profiling and its
+`system.trace_log` collector, preventing diagnostic stack samples from filling Docker's disk.
+Remove those overrides temporarily when collecting a ClickHouse profile.
+
 ## Setup
 
 Install Docker, `uv`, and GNU Make, and configure any OpenAI-compatible API exposing the selected
@@ -49,6 +53,13 @@ other message shapes, replaces that message with the compiled Langfuse prompt, a
 `OPENAI_API_KEY`, so Handy never needs the upstream credential. `OPENAI_API_HOST` selects the
 upstream; a loopback address works both inside and outside the proxy container.
 
+The proxy also loads canonical technical and product names from `vocabulary.yaml` and gives that
+context to the LLM. The vocabulary contains terms and short descriptions rather than dictated
+variants; the LLM decides whether a phonetic match fits the full sentence. Every proxy trace and
+experiment records the vocabulary revision used in Langfuse. Rebuild the proxy after editing the
+file. The selected Langfuse system prompt must contain `{{vocabulary}}`; the proxy returns a 503
+instead of silently running without that context.
+
 ## Run experiments
 
 ```fish
@@ -68,16 +79,18 @@ that resolve to the same numeric version run once. Filters change only that run 
 score, and comparison lands in Langfuse either way.
 
 Each item scores `pass` (boolean, all assertions held) and `assertion_rate` (fraction that held),
-both defined for every item so runs stay comparable. Run-level scores add `pass_rate` over all 45
+both defined for every item so runs stay comparable. Run-level scores add `pass_rate` over all 59
 items, `pass_rate:<category>`, and a `pass_rate:negative-control` / `pass_rate:positive-case`
 split, each carrying its own denominator in the score comment. Categories come from dataset item
 metadata, so slice items by `metadata.category` in the Langfuse UI rather than by score name.
 
 ## Prompt workflow
 
-`make sync` seeds `transcript-cleanup` only when it does not already exist — v1 labelled
-`baseline`, v2 `production`. After that Langfuse is authoritative, and an existing prompt must be
-a chat prompt carrying a `production` label.
+`make sync` seeds `transcript-cleanup` when it does not already exist — v1 labelled `baseline`,
+v2 unlabelled, and v3 `production`. It also upgrades only the unmodified legacy v1/v2 seed to v3
+production; other existing prompts remain operator-managed. Existing datasets keep their
+authoritative items, with only missing snapshot IDs imported. An existing prompt must be a chat
+prompt carrying a `production` label.
 
 Edit prompts in Langfuse, label a version `candidate`, then compare it with `production`:
 

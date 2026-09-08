@@ -12,9 +12,10 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from langfuse.openai import openai
 
 from .config import EXTRA_BODY_OPTIONS, langfuse_client, load_env
-from .prompts import prompt_label, prompt_name, resolve
+from .prompts import compile_messages, prompt_label, prompt_name, resolve
+from .vocabulary import load_vocabulary
 
-load_env()
+load_env("proxy")
 
 _upstream: openai.AsyncOpenAI | None = None
 
@@ -134,9 +135,19 @@ def prepare_completion(body: dict[str, Any], transcript: str) -> dict[str, Any]:
         name=prompt_name(),
         label=prompt_label(),
     )
+    vocabulary = load_vocabulary()
+    request_metadata = body.get("metadata")
     prepared = {
         **body,
-        "messages": langfuse_prompt.compile(transcript=transcript),
+        "messages": compile_messages(
+            langfuse_prompt,
+            transcript=transcript,
+            vocabulary=vocabulary,
+        ),
+        "metadata": {
+            **(request_metadata if isinstance(request_metadata, dict) else {}),
+            "vocabulary_revision": vocabulary.revision,
+        },
     }
     prepared.setdefault("temperature", 0)
     options = completion_options(prepared)

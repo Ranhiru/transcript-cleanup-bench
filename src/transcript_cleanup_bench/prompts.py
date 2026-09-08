@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from langfuse.model import ChatPromptClient
 
 from .config import REPO, langfuse_client, load_env
+from .vocabulary import VocabularyContext
 
 SEEDS = (
     (REPO / "prompts" / "v1.txt", ["baseline"]),
-    (REPO / "prompts" / "v2.txt", ["production"]),
+    (REPO / "prompts" / "v2.txt", []),
+    (REPO / "prompts" / "v3.txt", ["production"]),
 )
 
 
@@ -26,6 +29,22 @@ def chat_messages(instructions: str) -> list[dict[str, str]]:
         {"role": "system", "content": instructions.strip()},
         {"role": "user", "content": "{{transcript}}"},
     ]
+
+
+def compile_messages(
+    prompt: ChatPromptClient,
+    *,
+    transcript: str,
+    vocabulary: VocabularyContext,
+) -> list[dict[str, str]]:
+    """Compile a prompt that explicitly declares its vocabulary context."""
+    messages = prompt.compile(transcript=transcript, vocabulary=vocabulary.prompt)
+    if not any(
+        message.get("role") == "system" and vocabulary.prompt in message.get("content", "")
+        for message in messages
+    ):
+        raise ValueError("transcript-cleanup system prompt must contain {{vocabulary}}")
+    return messages
 
 
 def resolve(
@@ -47,6 +66,30 @@ def resolve(
     return resolved
 
 
+def seed_messages(path: Path) -> list[dict[str, str]]:
+    return chat_messages(path.read_text())
+
+
+def is_legacy_seed(langfuse: Any, *, name: str, prompt: Any) -> bool:
+    """Whether this is the unmodified v1/v2 prompt seeded before v3 existed."""
+    if sorted(prompt.versions) != [1, 2]:
+        return False
+
+    v1 = langfuse.get_prompt(name, version=1, type="chat", cache_ttl_seconds=0)
+    v2 = langfuse.get_prompt(name, version=2, type="chat", cache_ttl_seconds=0)
+
+    return (
+        set(v1.labels) == {"baseline"}
+        and v1.tags == []
+        and v1.config == {}
+        and v1.compile() == seed_messages(REPO / "prompts" / "v1.txt")
+        and set(v2.labels) in ({"production"}, {"production", "latest"})
+        and v2.tags == []
+        and v2.config == {}
+        and v2.compile() == seed_messages(REPO / "prompts" / "v2.txt")
+    )
+
+
 def bootstrap(langfuse: Any, name: str | None = None) -> bool:
     name = name or prompt_name()
     response = langfuse.api.prompts.list(name=name, limit=100)
@@ -59,6 +102,17 @@ def bootstrap(langfuse: Any, name: str | None = None) -> bool:
                 f"Langfuse prompt {name!r} is not a chat prompt; delete or rename it, "
                 "then run `make sync` again"
             )
+        if is_legacy_seed(langfuse, name=name, prompt=prompt):
+            path = REPO / "prompts" / "v3.txt"
+            langfuse.create_prompt(
+                name=name,
+                prompt=seed_messages(path),
+                labels=["production"],
+                type="chat",
+                commit_message="Migrate legacy production prompt to v3",
+            )
+            print(f"migrated {name} production from v2 to v3")
+            return True
         if "production" not in prompt.labels:
             raise SystemExit(
                 f"Langfuse prompt {name!r} has no production label; assign the label to "
@@ -70,7 +124,7 @@ def bootstrap(langfuse: Any, name: str | None = None) -> bool:
     for path, labels in SEEDS:
         langfuse.create_prompt(
             name=name,
-            prompt=chat_messages(path.read_text()),
+            prompt=seed_messages(path),
             labels=labels,
             type="chat",
             commit_message=f"Bootstrap seed {path.stem}",
@@ -80,7 +134,7 @@ def bootstrap(langfuse: Any, name: str | None = None) -> bool:
 
 
 def main() -> None:
-    load_env()
+    load_env("prompts")
     langfuse = langfuse_client()
     try:
         bootstrap(langfuse)

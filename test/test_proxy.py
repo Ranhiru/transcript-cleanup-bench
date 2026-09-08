@@ -8,6 +8,7 @@ from langfuse.api import Prompt_Chat
 from langfuse.model import ChatPromptClient
 
 from transcript_cleanup_bench import proxy
+from transcript_cleanup_bench.vocabulary import VocabularyContext
 
 COMPLETION = {
     "id": "chatcmpl-upstream",
@@ -72,7 +73,10 @@ def chat_prompt() -> ChatPromptClient:
             tags=[],
             config={},
             prompt=[
-                {"role": "system", "content": "Clean the transcript."},
+                {
+                    "role": "system",
+                    "content": "Clean the transcript.\n\n{{vocabulary}}",
+                },
                 {"role": "user", "content": "{{transcript}}"},
             ],
         )
@@ -127,6 +131,14 @@ def upstream(monkeypatch):
     monkeypatch.setenv("LANGFUSE_PROMPT_NAME", "transcript-cleanup")
     monkeypatch.setenv("LANGFUSE_PROMPT_LABEL", "production")
     monkeypatch.setattr(proxy, "langfuse_client", lambda: "langfuse")
+    monkeypatch.setattr(
+        proxy,
+        "load_vocabulary",
+        lambda: VocabularyContext(
+            prompt="KNOWN VOCABULARY\n\n- Meetily: meeting transcription application",
+            revision="revision-1",
+        ),
+    )
 
     def resolve_prompt(langfuse, *, name, label):
         assert (langfuse, name, label) == ("langfuse", "transcript-cleanup", "production")
@@ -162,9 +174,16 @@ async def test_compiles_the_prompt_and_forwards_sampler_extensions(upstream) -> 
     assert response.status_code == 200
     assert response.json()["choices"][0]["message"]["content"] == "cleaned"
     assert upstream.sent["messages"] == [
-        {"role": "system", "content": "Clean the transcript."},
+        {
+            "role": "system",
+            "content": (
+                "Clean the transcript.\n\nKNOWN VOCABULARY\n\n"
+                "- Meetily: meeting transcription application"
+            ),
+        },
         {"role": "user", "content": "raw words"},
     ]
+    assert upstream.sent.get("metadata") is None
     assert upstream.sent["temperature"] == 0.2
     assert upstream.sent["response_format"] == {"type": "json_object"}
     # Extensions must reach the wire even though the OpenAI schema has no such fields.
@@ -185,6 +204,33 @@ async def test_prepare_completion_links_the_resolved_prompt_version() -> None:
     )
     linked = options["langfuse_prompt"]
     assert (linked.name, linked.version) == ("transcript-cleanup", 7)
+    assert options["metadata"] == {"vocabulary_revision": "revision-1"}
+
+
+async def test_prompt_without_vocabulary_placeholder_is_rejected(
+    monkeypatch,
+) -> None:
+    older = ChatPromptClient(
+        Prompt_Chat(
+            name="transcript-cleanup",
+            version=2,
+            type="chat",
+            labels=[],
+            tags=[],
+            config={},
+            prompt=[
+                {"role": "system", "content": "Clean the transcript."},
+                {"role": "user", "content": "{{transcript}}"},
+            ],
+        )
+    )
+    monkeypatch.setattr(proxy, "resolve", lambda *args, **kwargs: older)
+
+    with pytest.raises(ValueError, match="must contain.*vocabulary"):
+        proxy.prepare_completion(
+            {"model": "m", "messages": [{"role": "user", "content": "raw words"}]},
+            "raw words",
+        )
 
 
 async def test_streaming_relays_chunks_as_sse_preserving_tool_calls(upstream) -> None:
